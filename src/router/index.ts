@@ -30,10 +30,10 @@ const router = createRouter({
         },
         {
           path: 'mac-id',
-          name: 'Mac地址',
+          name: 'MacId',
           component: MacIdView,
           meta: {
-            title: 'Mac ID',
+            title: 'Mac地址',
             icon: FluentEmojiFlatAngryFace,
           },
         },
