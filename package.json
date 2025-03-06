@@ -34,7 +34,7 @@
     "alova": "^3.2.6",
     "lodash-es": "^4.17.21",
     "pinia": "^2.2.8",
-    "shuimo-ui": "npm:shuimo-ui-nightly@latest",
+    "shuimo-ui": "npm:shuimo-ui-nightly@0.3.0-alpha.14-nightly.20250217",
     "tdesign-vue-next": "^1.11.1",
     "the-new-css-reset": "^1.11.3",
     "vue": "^3.5.13",
