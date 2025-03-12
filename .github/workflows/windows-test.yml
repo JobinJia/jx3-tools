@@ -18,8 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-          cache: pnpm
+          node-version: lts/*
 
       # 安装 Rust 工具链
       - name: Install Rust
@@ -37,11 +36,11 @@ jobs:
       - name: Install Tauri dependencies
         run: |
           rustup target add x86_64-pc-windows-msvc
-          npm install -g @tauri-apps/cli
+          pnpm install -g @tauri-apps/cli
 
       # 安装项目依赖
       - name: Install dependencies
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       # 运行 Rust 测试
       - name: Run Rust tests
@@ -50,7 +49,7 @@ jobs:
 
       # 构建 Tauri 应用（仅检查构建是否成功）
       - name: Build Tauri app
-        run: npm run tauri:dev -- --ci
+        run: pnpm run tauri:dev -- --ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
