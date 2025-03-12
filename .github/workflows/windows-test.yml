@@ -20,6 +20,13 @@ jobs:
         with:
           node-version: lts/*
 
+      # 安装 pnpm
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: latest
+          run_install: false
+
       # 安装 Rust 工具链
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -40,7 +47,7 @@ jobs:
 
       # 安装项目依赖
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       # 运行 Rust 测试
       - name: Run Rust tests
