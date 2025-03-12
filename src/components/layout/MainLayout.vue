@@ -1,11 +1,13 @@
 <script setup lang="tsx">
 import type { MenuOption } from 'naive-ui'
 import type { RouteRecordRaw } from 'vue-router'
-import { NIcon } from 'naive-ui'
+import { NIcon, useOsTheme } from 'naive-ui'
 import { type Component, computed, h } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 
 const router = useRouter()
+// 获取系统主题
+const osTheme = useOsTheme()
 
 function renderIcon(icon?: Component) {
   if (!icon)
@@ -17,7 +19,6 @@ function renderIcon(icon?: Component) {
 const menuOptions = computed<MenuOption[]>(() => {
   const rootRoute = router.options.routes.find(r => r.path === '/') as RouteRecordRaw
   const routes = rootRoute?.children || []
-  console.log(routes)
 
   return routes.map(r => ({
     label: () =>
@@ -34,6 +35,14 @@ const menuOptions = computed<MenuOption[]>(() => {
     icon: renderIcon(r.meta?.icon as Component),
   } as unknown as MenuOption))
 })
+
+// 计算侧边栏的样式类，根据主题切换不同的背景效果
+const siderClass = computed(() => {
+  const baseClass = 'h-screen backdrop-blur-sm bg-cover bg-center bg-no-repeat'
+  return osTheme.value === 'dark'
+    ? `${baseClass} bg-[rgba(0,0,0,0.7)] dark:bg-[url('@/assets/pagoda-8018757_1280.jpg')]`
+    : `${baseClass} bg-[url('@/assets/pagoda-8018757_1280.jpg')]`
+})
 </script>
 
 <template>
@@ -42,7 +51,7 @@ const menuOptions = computed<MenuOption[]>(() => {
       :collapsed-width="64"
       collapse-mode="width"
       collapsed
-      class="h-screen backdrop-blur-sm bg-[url('@/assets/pagoda-8018757_1280.jpg')] bg-cover bg-center bg-no-repeat"
+      :class="siderClass"
     >
       <n-menu
         collapsed

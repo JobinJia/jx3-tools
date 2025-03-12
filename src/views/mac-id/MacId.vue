@@ -13,7 +13,10 @@ const isLoading = ref<boolean>(false)
 const isChanging = ref<boolean>(false)
 const isRestoring = ref<boolean>(false)
 const errorMessage = ref<string>('')
-const autoRestoreOnReboot = ref<boolean>(false)
+const autoRestoreOnReboot = ref<boolean>(true) // 默认打开
+
+// 计算当前状态
+const isMacAddressChanged = ref(false)
 
 // 获取原始MAC地址
 async function fetchOriginalMacAddress() {
@@ -25,6 +28,7 @@ async function fetchOriginalMacAddress() {
     const macAddress = await invoke('get_mac_address')
     originalMacAddress.value = macAddress as string
     currentMacAddress.value = macAddress as string
+    isMacAddressChanged.value = originalMacAddress.value !== currentMacAddress.value
 
     // 获取自动还原设置
     try {
@@ -32,8 +36,10 @@ async function fetchOriginalMacAddress() {
       autoRestoreOnReboot.value = autoRestore as boolean
     } catch (error) {
       console.error('获取自动还原设置失败:', error)
-      // 默认为false
-      autoRestoreOnReboot.value = false
+      // 默认为true
+      autoRestoreOnReboot.value = true
+      // 设置为true
+      updateAutoRestoreSetting(true)
     }
   } catch (error) {
     console.error('获取MAC地址失败:', error)
@@ -42,6 +48,7 @@ async function fetchOriginalMacAddress() {
     // 模拟数据，实际应用中应删除
     originalMacAddress.value = '00:1A:2B:3C:4D:5E'
     currentMacAddress.value = '00:1A:2B:3C:4D:5E'
+    isMacAddressChanged.value = false
   } finally {
     isLoading.value = false
   }
@@ -77,6 +84,7 @@ async function changeMacAddress() {
 
     // 更新当前MAC地址
     currentMacAddress.value = newMacAddress
+    isMacAddressChanged.value = originalMacAddress.value !== currentMacAddress.value
   } catch (error) {
     console.error('修改MAC地址失败:', error)
     errorMessage.value = `修改MAC地址失败: ${error}`
@@ -99,6 +107,7 @@ async function restoreMacAddress() {
     // 重新获取MAC地址
     const macAddress = await invoke('get_mac_address')
     currentMacAddress.value = macAddress as string
+    isMacAddressChanged.value = originalMacAddress.value !== currentMacAddress.value
   } catch (error) {
     console.error('还原MAC地址失败:', error)
     errorMessage.value = `还原MAC地址失败: ${error}`
@@ -131,74 +140,75 @@ onMounted(() => {
 <template>
   <div class="mac-id-container">
     <n-card title="MAC地址管理" class="mac-card">
-      <template #footer>
-        <n-space>
+      <n-spin :show="isLoading">
+        <!-- 简化的表格 -->
+        <n-table :bordered="true" :single-line="false">
+          <n-tbody>
+            <n-tr>
+              <n-td>原始MAC地址</n-td>
+              <n-td>
+                <n-tag type="primary">
+                  {{ originalMacAddress }}
+                </n-tag>
+              </n-td>
+            </n-tr>
+            <n-tr>
+              <n-td>当前MAC地址</n-td>
+              <n-td>
+                <n-tag :type="isMacAddressChanged ? 'warning' : 'success'">
+                  {{ currentMacAddress }}
+                </n-tag>
+              </n-td>
+            </n-tr>
+            <n-tr>
+              <n-td>状态</n-td>
+              <n-td>
+                <n-tag :type="isMacAddressChanged ? 'warning' : 'success'">
+                  {{ isMacAddressChanged ? '已修改' : '原始地址' }}
+                </n-tag>
+              </n-td>
+            </n-tr>
+            <n-tr>
+              <n-td>重启自动还原</n-td>
+              <n-td>
+                <div class="flex items-center gap-2">
+                  <n-switch v-model:value="autoRestoreOnReboot" @update:value="updateAutoRestoreSetting" />
+                  <span>{{ autoRestoreOnReboot ? '开启' : '关闭' }}</span>
+                </div>
+              </n-td>
+            </n-tr>
+          </n-tbody>
+        </n-table>
+
+        <!-- 操作按钮 -->
+        <div class="flex mt-4 gap-4">
           <n-button type="primary" :loading="isChanging" @click="changeMacAddress">
             随机修改MAC地址
           </n-button>
           <n-button :loading="isRestoring" @click="restoreMacAddress">
             还原MAC地址
           </n-button>
-        </n-space>
-      </template>
-
-      <n-space vertical size="large">
-        <n-spin :show="isLoading" description="正在获取MAC地址...">
-          <div class="mac-info">
-            <n-descriptions bordered>
-              <n-descriptions-item label="原始MAC地址">
-                <n-tag type="primary">
-                  {{ originalMacAddress }}
-                </n-tag>
-              </n-descriptions-item>
-              <n-descriptions-item label="当前MAC地址">
-                <n-tag
-                  :type="currentMacAddress === originalMacAddress ? 'success' : 'warning'"
-                >
-                  {{ currentMacAddress }}
-                </n-tag>
-              </n-descriptions-item>
-              <n-descriptions-item label="状态">
-                <n-tag :type="currentMacAddress === originalMacAddress ? 'success' : 'warning'">
-                  {{ currentMacAddress === originalMacAddress ? '原始地址' : '已修改' }}
-                </n-tag>
-              </n-descriptions-item>
-            </n-descriptions>
-          </div>
-        </n-spin>
-
-        <n-card title="设置" size="small">
-          <n-space vertical>
-            <n-space align="center">
-              <span>重启电脑时自动还原MAC地址：</span>
-              <n-switch v-model:value="autoRestoreOnReboot" @update:value="updateAutoRestoreSetting" />
-            </n-space>
-            <n-text depth="3" size="small">
-              开启此选项后，系统重启时将自动还原为原始MAC地址。这有助于避免长期使用修改后的MAC地址可能带来的问题。
-            </n-text>
-          </n-space>
-        </n-card>
-
-        <n-alert v-if="errorMessage" type="error" :title="errorMessage" />
-
-        <div class="mac-info-help">
-          <n-collapse>
-            <n-collapse-item title="什么是MAC地址？" name="1">
-              <p>MAC地址（Media Access Control Address）是一个用于识别网络设备的唯一标识符，由48位二进制数字组成，通常表示为12个十六进制数字，分为6组，每组2个十六进制数字，组之间用冒号或连字符分隔。</p>
-            </n-collapse-item>
-            <n-collapse-item title="为什么要修改MAC地址？" name="2">
-              <p>修改MAC地址可能有多种原因，包括：</p>
-              <ul>
-                <li>绕过基于MAC地址的网络访问控制</li>
-                <li>解决网络设备冲突问题</li>
-                <li>增强隐私保护，避免被跟踪</li>
-                <li>测试网络配置和安全性</li>
-              </ul>
-              <p>请注意，在某些情况下修改MAC地址可能违反网络使用政策，请确保您的操作符合相关法律法规。</p>
-            </n-collapse-item>
-          </n-collapse>
         </div>
-      </n-space>
+
+        <!-- 错误信息 -->
+        <n-alert v-if="errorMessage" type="error" :title="errorMessage" class="mt-4" />
+
+        <!-- 帮助信息 -->
+        <n-collapse class="mt-4">
+          <n-collapse-item title="MAC地址说明" name="help">
+            <n-space vertical>
+              <div>
+                <strong>什么是MAC地址？</strong>
+                <p>MAC地址是网络设备的唯一标识符，由48位二进制数字组成，通常表示为12个十六进制数字。</p>
+              </div>
+              <div>
+                <strong>为什么要修改MAC地址？</strong>
+                <p>修改MAC地址可用于增强隐私保护、绕过基于MAC地址的网络访问控制等。请确保您的操作符合相关法律法规。</p>
+              </div>
+            </n-space>
+          </n-collapse-item>
+        </n-collapse>
+      </n-spin>
     </n-card>
   </div>
 </template>
@@ -214,11 +224,23 @@ onMounted(() => {
   width: 100%;
 }
 
-.mac-info {
-  margin-bottom: 20px;
+.mt-4 {
+  margin-top: 16px;
 }
 
-.mac-info-help {
-  margin-top: 20px;
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+
+.gap-4 {
+  gap: 16px;
 }
 </style>

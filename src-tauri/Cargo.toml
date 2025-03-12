@@ -30,3 +30,10 @@ tauri-plugin-log = "2.0.0-rc"
 tauri-plugin-dialog = "2"
 regex = "1.10.2"
 dirs = "5.0.1"
+mac_address = "1.1.5"
+if-addrs = "0.11.0"
+rand = "0.8.5"
+
+[[bin]]
+name = "test_mac_address"
+path = "src/bin/test_mac_address.rs"
