@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { ref, watchPostEffect } from 'vue'
 import { useAccountTree } from '@/composables/accountTree'
 import { useBasePath } from '@/composables/basePath'
-import { ref, watchPostEffect } from 'vue'
 
 const props = defineProps<{
   userSelect: {

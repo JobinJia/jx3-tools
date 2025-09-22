@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { TreeOverrideNodeClickBehavior } from 'naive-ui'
-import { useAccountTree } from '@/composables/accountTree'
-import { useBasePath } from '@/composables/basePath'
 import { NCheckbox, NInput, NTree, useMessage } from 'naive-ui'
 import { computed, h, ref, watch } from 'vue'
 import FlatColorIconsFolder from '~icons/flat-color-icons/folder'
+import { useAccountTree } from '@/composables/accountTree'
+import { useBasePath } from '@/composables/basePath'
 
 const {
   type = 'source',
@@ -58,7 +58,11 @@ function renderPrefix(info: { option: any, checked: boolean, selected: boolean }
   })
 }
 
-function handleSelectedKeys(keys: Array<string | number>, option: Array<any | null>, meta: { node: any | null, action: 'select' | 'unselect' }) {
+function handleSelectedKeys(
+  keys: Array<string | number>,
+  option: Array<any | null>,
+  meta: { node: any | null, action: 'select' | 'unselect' },
+) {
   const { node, action } = meta
   if (node?.children) {
     return

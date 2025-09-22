@@ -1,8 +1,9 @@
 <script setup lang="tsx">
 import type { MenuOption } from 'naive-ui'
+import type { Component } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
 import { NIcon, useOsTheme } from 'naive-ui'
-import { type Component, computed, h } from 'vue'
+import { computed, h } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 
 const router = useRouter()

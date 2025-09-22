@@ -1,15 +1,15 @@
-import MainLayout from '@/components/layout/MainLayout.vue'
-import HotkeyView from '@/views/hotkey/HotkeyView.vue'
-import KeyboardView from '@/views/keyboard/KeyboardView.vue'
-import MacIdView from '@/views/mac-id/MacId.vue'
 import { createRouter, createWebHistory } from 'vue-router'
+import FluentEmojiFlatAngryFace from '~icons/fluent-emoji-flat/angry-face'
+import FluentEmojiFlatAnguishedFace from '~icons/fluent-emoji-flat/anguished-face'
+import FluentEmojiFlatAstonishedFace from '~icons/fluent-emoji-flat/astonished-face'
+import MainLayout from '@/components/layout/MainLayout.vue'
 
 // import NotoV1JapaneseProhibitedButton from '~icons/noto-v1/japanese-prohibited-button'
 // import NotoV1JapaneseSecretButton from '~icons/noto-v1/japanese-secret-button'
 
-import FluentEmojiFlatAngryFace from '~icons/fluent-emoji-flat/angry-face'
-import FluentEmojiFlatAnguishedFace from '~icons/fluent-emoji-flat/anguished-face'
-import FluentEmojiFlatAstonishedFace from '~icons/fluent-emoji-flat/astonished-face'
+import HotkeyView from '@/views/hotkey/HotkeyView.vue'
+import KeyboardView from '@/views/keyboard/KeyboardView.vue'
+import MacIdView from '@/views/mac-id/MacId.vue'
 
 const router = createRouter({
   history: createWebHistory(),

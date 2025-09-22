@@ -27,6 +27,7 @@ coverage
 *.sln
 *.sw?
 .fleet
+.AGENTS.md
 
 
 src-tauri/gen/

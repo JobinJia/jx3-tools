@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useBasePath } from '@/composables/basePath'
-import { useKeyboardDir } from '@/composables/keyboardDir'
 import { useDialog } from 'shuimo-ui'
 import { ref } from 'vue'
 import IcRoundSettings from '~icons/ic/round-settings'
+import { useBasePath } from '@/composables/basePath'
+import { useKeyboardDir } from '@/composables/keyboardDir'
 import Result from './components/Result.vue'
 import SourceTree from './components/SourceTree.vue'
 

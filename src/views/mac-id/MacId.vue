@@ -56,18 +56,15 @@ async function fetchOriginalMacAddress() {
 
 // 生成随机MAC地址
 function generateRandomMacAddress(): string {
-  const hexDigits = '0123456789ABCDEF'
-  let macAddress = ''
+  const bytes = Array.from({ length: 6 }, () => Math.floor(Math.random() * 256))
 
-  for (let i = 0; i < 6; i++) {
-    let part = ''
-    for (let j = 0; j < 2; j++) {
-      part += hexDigits.charAt(Math.floor(Math.random() * hexDigits.length))
-    }
-    macAddress += (i === 0 ? '' : ':') + part
-  }
+  // 确保首字节为单播且本地管理地址：最低位清零，次低位置1
+  bytes[0] = (bytes[0] | 0x02) & 0xFE
 
-  return macAddress
+  return bytes
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join(':')
+    .toUpperCase()
 }
 
 // 修改MAC地址
