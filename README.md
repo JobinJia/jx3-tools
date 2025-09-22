@@ -70,3 +70,9 @@ pnpm test:e2e
 ```sh
 pnpm lint
 ```
+
+## Release 流程
+
+发布步骤参见 [`docs/RELEASE.md`](docs/RELEASE.md)。`pnpm release <type>` 会同时更新
+`package.json` 与 `src-tauri/tauri.conf.json`，并创建带版本号的提交和标签，确保构建
+产物包含正确的版本信息。

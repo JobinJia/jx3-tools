@@ -1,7 +1,7 @@
 {
   "name": "vite-vue3-template",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.17.0",
   "description": "A vite vue3 typescript template",
@@ -17,6 +17,7 @@
   },
   "scripts": {
     "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "dev": "vite",
     "build": "run-p type-check build-only",
     "preview": "vite preview",
@@ -28,7 +29,7 @@
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
     "lint:fix": "eslint . --fix",
     "prepare": "husky",
-    "release": "bumpp"
+    "release": "bumpp --config .bumpp.config.cjs"
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "~2.4.0",
