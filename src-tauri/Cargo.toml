@@ -34,6 +34,15 @@ dirs = "5.0.1"
 mac_address = "1.1.5"
 if-addrs = "0.11.0"
 rand = "0.8.5"
+# Windows API 相关依赖
+windows = { version = "0.52.0", features = [
+  "Win32_Foundation",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Networking_WinSock",
+  "Win32_System_Registry",
+  "Win32_System_Services"
+] }
 
 [[bin]]
 name = "app"
