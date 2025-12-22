@@ -1,54 +1,75 @@
-mod hotkey;
-mod keyboard;
-pub mod mac_addr;
+mod app_state;
+mod commands;
+mod error;
+mod services;
 
-use hotkey::{
-    get_hotkey_config, get_hotkey_status, save_hotkey_config, stop_hotkey_task, HotkeyManager,
-};
-use keyboard::{cp_source_to_target, list_directory_contents};
-use mac_addr::{
-    change_mac_address, get_auto_restore_setting, get_mac_address, restore_mac_cmd,
-    set_auto_restore_setting,
-};
+use app_state::AppState;
+use commands::*;
 use tauri::Manager;
+use tauri_plugin_log::{Target, TargetKind};
 
-pub use mac_addr::restore_mac_address;
+pub use error::AppError;
+pub use services::hotkey::HOTKEY_STATUS_EVENT;
+pub use services::mac::MacService;
 
-// use tauri::command;
+/// Restore MAC address (called from main.rs for CLI)
+pub fn restore_mac_address() -> error::AppResult<()> {
+    let service = MacService::new()?;
+    service.restore_mac_address()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::panic::set_hook(Box::new(|info| {
+        if let Some(location) = info.location() {
+            log::error!(
+                "应用发生未捕获 panic: {} ({}:{})",
+                info,
+                location.file(),
+                location.line()
+            );
+        } else {
+            log::error!("应用发生未捕获 panic: {}", info);
+        }
+    }));
+
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .targets([
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                    Target::new(TargetKind::Stdout),
+                ])
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::default().build())
         .setup(|app| {
-            let manager = HotkeyManager::new();
-            manager
-                .initialize(&app.handle())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-            app.manage(manager);
-
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            let state = match AppState::initialize(&app.handle()) {
+                Ok(state) => state,
+                Err(err) => {
+                    log::error!("初始化应用状态失败: {}", err);
+                    return Err(Box::new(err));
+                }
+            };
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // 直接使用导入的函数
+            // MAC address commands
             get_mac_address,
             change_mac_address,
             restore_mac_cmd,
             get_auto_restore_setting,
             set_auto_restore_setting,
+            // Keyboard commands
             list_directory_contents,
             cp_source_to_target,
+            // Hotkey commands
             get_hotkey_config,
-            save_hotkey_config,
             get_hotkey_status,
+            save_hotkey_config,
             stop_hotkey_task,
         ])
         .run(tauri::generate_context!())

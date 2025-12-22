@@ -1,80 +1,65 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import type { HotkeyConfig } from '@/types'
 import { useMessage } from 'naive-ui'
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-
-interface HotkeyConfig {
-  triggerKey: string
-  intervalMs: number
-  startHotkey: string
-  stopHotkey: string
-}
-
-interface HotkeyStatus {
-  running: boolean
-  lastError: string | null
-}
+import { storeToRefs } from 'pinia'
+import { computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { useHotkeyStore } from '@/stores/hotkey'
 
 const message = useMessage()
+const hotkeyStore = useHotkeyStore()
+const { config, status, loading, saving } = storeToRefs(hotkeyStore)
+
 const formValue = reactive<HotkeyConfig>({
   triggerKey: '',
   intervalMs: 1000,
   startHotkey: 'F11',
   stopHotkey: 'F12',
 })
-const status = ref<HotkeyStatus>({ running: false, lastError: null })
-const loading = ref(false)
-const saving = ref(false)
-let unlisten: null | (() => void) = null
+
+watch(
+  config,
+  (value) => {
+    if (value)
+      Object.assign(formValue, value)
+  },
+  { immediate: true },
+)
 
 const statusText = computed(() => (status.value.running ? '运行中' : '已停止'))
-const statusType = computed(() => (status.value.running ? 'success' : 'default'))
+const statusType = computed(() => {
+  if (status.value.running)
+    return 'success'
+  if (!status.value.registered)
+    return 'warning'
+  return 'default'
+})
 
-async function fetchConfig() {
-  loading.value = true
+async function loadInitialData() {
   try {
-    const config = await invoke<HotkeyConfig>('get_hotkey_config')
-    Object.assign(formValue, config)
-    const currentStatus = await invoke<HotkeyStatus>('get_hotkey_status')
-    status.value = currentStatus
+    await hotkeyStore.init()
   } catch (error) {
     console.error('加载按键配置失败:', error)
     message.error('加载按键配置失败')
-  } finally {
-    loading.value = false
   }
 }
 
 async function saveConfig() {
-  saving.value = true
   try {
-    const payload = await invoke<HotkeyConfig>('save_hotkey_config', {
-      config: { ...formValue },
-    })
-    Object.assign(formValue, payload)
+    await hotkeyStore.saveConfig({ ...formValue })
     message.success('配置已保存，按开始热键即可执行')
   } catch (error: any) {
     console.error('保存按键配置失败:', error)
     const msg = typeof error === 'string' ? error : '保存失败，请检查输入'
     message.error(msg)
-  } finally {
-    saving.value = false
   }
 }
 
-onMounted(async () => {
-  await fetchConfig()
-  unlisten = await listen<HotkeyStatus>('hotkey://status', (event) => {
-    status.value = event.payload
-  })
+onMounted(() => {
+  void loadInitialData()
 })
 
 onUnmounted(() => {
-  if (unlisten) {
-    unlisten()
-    unlisten = null
-  }
+  void hotkeyStore.disposeListener()
 })
 </script>
 
@@ -83,22 +68,14 @@ onUnmounted(() => {
     <n-card title="自动按键设置" :bordered="false">
       <n-spin :show="loading">
         <n-form
-          label-placement="left"
-          :label-width="120"
-          :model="formValue"
-          size="medium"
+          v-if="config" label-placement="left" :label-width="120" :model="formValue" size="medium"
           class="hotkey-form"
         >
           <n-form-item label="触发按键">
-            <n-input
-              v-model:value="formValue.triggerKey"
-              placeholder="例如：1、Q、F6"
-              maxlength="10"
-              clearable
-            />
+            <n-input v-model:value="formValue.triggerKey" placeholder="例如：1、Q、F6" maxlength="10" clearable />
           </n-form-item>
           <n-form-item label="触发频率 (毫秒)">
-            <n-input-number v-model:value="formValue.intervalMs" :min="10" :step="50" />
+            <n-input-number v-model:value="formValue.intervalMs" :min="20" :step="50" />
           </n-form-item>
           <n-form-item label="开始热键">
             <n-input v-model:value="formValue.startHotkey" placeholder="例如：F11 或 Ctrl+Alt+S" clearable />
@@ -111,6 +88,9 @@ onUnmounted(() => {
               <n-button type="primary" :loading="saving" @click="saveConfig">
                 保存配置
               </n-button>
+              <n-button :disabled="!status.running" @click="hotkeyStore.stopTask">
+                停止任务
+              </n-button>
               <n-tag :type="statusType">
                 当前状态：{{ statusText }}
               </n-tag>
@@ -122,11 +102,11 @@ onUnmounted(() => {
         </n-alert>
         <n-alert type="info" class="mt-3" :bordered="false">
           <p>
-            1. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b>
-            / <b>{{ formValue.stopHotkey || '结束热键' }}</b> 控制任务。
+            1. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b> / <b>{{ formValue.stopHotkey || '结束热键' }}</b>
+            控制任务（Windows 与 macOS 均支持）。
           </p>
-          <p>2. 软件最小化或在后台时同样生效，避免与其他热键冲突。</p>
-          <p>3. 触发按键支持字母、数字、功能键（F1~F24）以及常用操作键（空格、方向键等）。</p>
+          <p>2. 软件最小化或在后台时同样生效，请避免与系统或其他软件热键冲突；macOS 需在“系统设置 → 隐私与安全性 → 辅助功能”中允许应用控制键盘。</p>
+          <p>3. 触发按键支持字母、数字、功能键（Windows 可至 F24，macOS 至 F20）以及常用操作键（空格、方向键等）。</p>
         </n-alert>
       </n-spin>
     </n-card>

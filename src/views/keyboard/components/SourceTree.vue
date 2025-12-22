@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { TreeOverrideNodeClickBehavior } from 'naive-ui'
+import type { FileEntry } from '@/types'
 import { NCheckbox, NInput, NTree, useMessage } from 'naive-ui'
 import { computed, h, ref, watch } from 'vue'
 import FlatColorIconsFolder from '~icons/flat-color-icons/folder'
-import { useAccountTree } from '@/composables/accountTree'
-import { useBasePath } from '@/composables/basePath'
+import { useKeyboard } from '@/composables/useKeyboard'
 
 const {
   type = 'source',
@@ -15,27 +15,26 @@ const {
 }>()
 
 const emit = defineEmits<{
-  source: [source: any]
+  source: [source: { name: string, path: string }]
 }>()
-const message = useMessage()
 
+const message = useMessage()
 const source = ref('')
 
-const { basePath } = useBasePath()
-const { treeData, loadTree } = useAccountTree()
+const { basePath, treeData, loadTree } = useKeyboard()
 
 const expand = ref(false)
 const pattern = ref('')
-// 当basePath改变时重新加载目录树
+
+// Load directory tree when basePath changes
 watch(() => basePath.value, async (newPath) => {
   if (newPath) {
-    await loadTree(newPath)
+    await loadTree()
   }
 }, { immediate: true })
 
-function handleFilter(ptn: string, node: any) {
-  const { name } = node
-  return name.includes(ptn)
+function handleFilter(ptn: string, node: FileEntry) {
+  return node.name.includes(ptn)
 }
 
 const override: TreeOverrideNodeClickBehavior = ({ option }) => {
@@ -45,7 +44,7 @@ const override: TreeOverrideNodeClickBehavior = ({ option }) => {
   return 'default'
 }
 
-function renderPrefix(info: { option: any, checked: boolean, selected: boolean }) {
+function renderPrefix(info: { option: FileEntry, checked: boolean, selected: boolean }) {
   const { option, selected } = info
   if (option?.children) {
     return h(FlatColorIconsFolder)
@@ -59,9 +58,9 @@ function renderPrefix(info: { option: any, checked: boolean, selected: boolean }
 }
 
 function handleSelectedKeys(
-  keys: Array<string | number>,
-  option: Array<any | null>,
-  meta: { node: any | null, action: 'select' | 'unselect' },
+  _keys: Array<string | number>,
+  _option: Array<FileEntry | null>,
+  meta: { node: FileEntry | null, action: 'select' | 'unselect' },
 ) {
   const { node, action } = meta
   if (node?.children) {
@@ -75,15 +74,16 @@ function handleSelectedKeys(
   }
 }
 
-// 寻找目标节点并返回其路径
-function findPath(data: any[], targetName: string): string | null {
-  function helper(entries: any[], currentPath: string): string | null {
+// Find the path to a node by name
+function findPath(data: FileEntry[], targetName: string): string | null {
+  function helper(entries: FileEntry[], currentPath: string): string | null {
     for (const entry of entries) {
       const newPath = `${currentPath}/${entry.name}`
       if (entry.name === targetName) {
         return newPath
       }
-      if (entry.is_dir && entry?.children?.length > 0) {
+      // Search children regardless of is_dir flag (some leaf nodes may have children)
+      if (entry.children && entry.children.length > 0) {
         const result = helper(entry.children, newPath)
         if (result) {
           return result
@@ -101,7 +101,7 @@ watch(source, (val) => {
   const path = findPath(treeData.value, val)
   emit('source', {
     name: val,
-    path: path as string,
+    path: path ?? '',
   })
 })
 
@@ -112,7 +112,7 @@ watch(pattern, () => {
 })
 
 function handleRefresh() {
-  loadTree(basePath.value)
+  loadTree()
 }
 
 const clazz = computed(() => {
@@ -141,7 +141,11 @@ const clazz = computed(() => {
         :pattern="pattern"
         show-line
         :override-default-node-click-behavior="override"
-        :data="treeData" block-line key-field="id" label-field="name" :filter="handleFilter"
+        :data="treeData"
+        block-line
+        key-field="id"
+        label-field="name"
+        :filter="handleFilter"
         :show-irrelevant-nodes="false"
         expand-on-click
         :render-prefix="renderPrefix"

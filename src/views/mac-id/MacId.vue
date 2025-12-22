@@ -1,143 +1,31 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
-import { useMessage } from 'naive-ui'
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
+import { useMac } from '@/composables/useMac'
 
-// 创建消息实例
-const message = useMessage()
+const {
+  originalAddress,
+  currentAddress,
+  autoRestoreEnabled,
+  loading,
+  changing,
+  restoring,
+  error,
+  isChanged,
+  fetchMacAddress,
+  changeMacAddress,
+  restoreMacAddress,
+  setAutoRestore,
+} = useMac()
 
-// 存储MAC地址信息
-const originalMacAddress = ref<string>('')
-const currentMacAddress = ref<string>('')
-const isLoading = ref<boolean>(false)
-const isChanging = ref<boolean>(false)
-const isRestoring = ref<boolean>(false)
-const errorMessage = ref<string>('')
-const autoRestoreOnReboot = ref<boolean>(true) // 默认打开
-
-// 计算当前状态
-const isMacAddressChanged = ref(false)
-
-// 获取原始MAC地址
-async function fetchOriginalMacAddress() {
-  isLoading.value = true
-  errorMessage.value = ''
-
-  try {
-    // 调用Tauri后端获取MAC地址
-    const macAddress = await invoke('get_mac_address')
-    originalMacAddress.value = macAddress as string
-    currentMacAddress.value = macAddress as string
-    isMacAddressChanged.value = originalMacAddress.value !== currentMacAddress.value
-
-    // 获取自动还原设置
-    try {
-      const autoRestore = await invoke('get_auto_restore_setting')
-      autoRestoreOnReboot.value = autoRestore as boolean
-    } catch (error) {
-      console.error('获取自动还原设置失败:', error)
-      // 默认为true
-      autoRestoreOnReboot.value = true
-      // 设置为true
-      updateAutoRestoreSetting(true)
-    }
-  } catch (error) {
-    console.error('获取MAC地址失败:', error)
-    errorMessage.value = `获取MAC地址失败: ${error}`
-    message.error('获取MAC地址失败')
-    // 模拟数据，实际应用中应删除
-    originalMacAddress.value = '00:1A:2B:3C:4D:5E'
-    currentMacAddress.value = '00:1A:2B:3C:4D:5E'
-    isMacAddressChanged.value = false
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 生成随机MAC地址
-function generateRandomMacAddress(): string {
-  const bytes = Array.from({ length: 6 }, () => Math.floor(Math.random() * 256))
-
-  // 确保首字节为单播且本地管理地址：最低位清零，次低位置1
-  bytes[0] = (bytes[0] | 0x02) & 0xFE
-
-  return bytes
-    .map(byte => byte.toString(16).padStart(2, '0'))
-    .join(':')
-    .toUpperCase()
-}
-
-// 修改MAC地址
-async function changeMacAddress() {
-  isChanging.value = true
-  errorMessage.value = ''
-
-  try {
-    const newMacAddress = generateRandomMacAddress()
-
-    // 调用Tauri后端修改MAC地址
-    await invoke('change_mac_address', { macAddress: newMacAddress })
-    message.success('MAC地址修改成功')
-
-    // 更新当前MAC地址
-    currentMacAddress.value = newMacAddress
-    isMacAddressChanged.value = originalMacAddress.value !== currentMacAddress.value
-  } catch (error) {
-    console.error('修改MAC地址失败:', error)
-    errorMessage.value = `修改MAC地址失败: ${error}`
-    message.error('修改MAC地址失败')
-  } finally {
-    isChanging.value = false
-  }
-}
-
-// 还原MAC地址
-async function restoreMacAddress() {
-  isRestoring.value = true
-  errorMessage.value = ''
-
-  try {
-    // 调用Tauri后端还原MAC地址
-    await invoke('restore_mac_cmd')
-    message.success('MAC地址已还原')
-
-    // 重新获取MAC地址
-    const macAddress = await invoke('get_mac_address')
-    currentMacAddress.value = macAddress as string
-    isMacAddressChanged.value = originalMacAddress.value !== currentMacAddress.value
-  } catch (error) {
-    console.error('还原MAC地址失败:', error)
-    errorMessage.value = `还原MAC地址失败: ${error}`
-    message.error('还原MAC地址失败')
-  } finally {
-    isRestoring.value = false
-  }
-}
-
-// 更新自动还原设置
-async function updateAutoRestoreSetting(value: boolean) {
-  try {
-    await invoke('set_auto_restore_setting', { autoRestore: value })
-    message.success(value ? '已开启重启自动还原' : '已关闭重启自动还原')
-    autoRestoreOnReboot.value = value
-  } catch (error) {
-    console.error('更新自动还原设置失败:', error)
-    message.error('更新设置失败')
-    // 恢复原值
-    autoRestoreOnReboot.value = !value
-  }
-}
-
-// 组件挂载时获取MAC地址
 onMounted(() => {
-  fetchOriginalMacAddress()
+  fetchMacAddress()
 })
 </script>
 
 <template>
   <div class="mac-id-container">
     <n-card title="MAC地址管理" class="mac-card">
-      <n-spin :show="isLoading">
+      <n-spin :show="loading">
         <!-- 简化的表格 -->
         <n-table :bordered="true" :single-line="false">
           <n-tbody>
@@ -145,23 +33,23 @@ onMounted(() => {
               <n-td>原始MAC地址</n-td>
               <n-td>
                 <n-tag type="primary">
-                  {{ originalMacAddress }}
+                  {{ originalAddress }}
                 </n-tag>
               </n-td>
             </n-tr>
             <n-tr>
               <n-td>当前MAC地址</n-td>
               <n-td>
-                <n-tag :type="isMacAddressChanged ? 'warning' : 'success'">
-                  {{ currentMacAddress }}
+                <n-tag :type="isChanged ? 'warning' : 'success'">
+                  {{ currentAddress }}
                 </n-tag>
               </n-td>
             </n-tr>
             <n-tr>
               <n-td>状态</n-td>
               <n-td>
-                <n-tag :type="isMacAddressChanged ? 'warning' : 'success'">
-                  {{ isMacAddressChanged ? '已修改' : '原始地址' }}
+                <n-tag :type="isChanged ? 'warning' : 'success'">
+                  {{ isChanged ? '已修改' : '原始地址' }}
                 </n-tag>
               </n-td>
             </n-tr>
@@ -169,8 +57,8 @@ onMounted(() => {
               <n-td>重启自动还原</n-td>
               <n-td>
                 <div class="flex items-center gap-2">
-                  <n-switch v-model:value="autoRestoreOnReboot" @update:value="updateAutoRestoreSetting" />
-                  <span>{{ autoRestoreOnReboot ? '开启' : '关闭' }}</span>
+                  <n-switch v-model:value="autoRestoreEnabled" @update:value="setAutoRestore" />
+                  <span>{{ autoRestoreEnabled ? '开启' : '关闭' }}</span>
                 </div>
               </n-td>
             </n-tr>
@@ -179,16 +67,16 @@ onMounted(() => {
 
         <!-- 操作按钮 -->
         <div class="flex mt-4 gap-4">
-          <n-button type="primary" :loading="isChanging" @click="changeMacAddress">
+          <n-button type="primary" :loading="changing" @click="changeMacAddress">
             随机修改MAC地址
           </n-button>
-          <n-button :loading="isRestoring" @click="restoreMacAddress">
+          <n-button :loading="restoring" @click="restoreMacAddress">
             还原MAC地址
           </n-button>
         </div>
 
         <!-- 错误信息 -->
-        <n-alert v-if="errorMessage" type="error" :title="errorMessage" class="mt-4" />
+        <n-alert v-if="error" type="error" :title="error" class="mt-4" />
 
         <!-- 帮助信息 -->
         <n-collapse class="mt-4">

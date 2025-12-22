@@ -1,33 +1,30 @@
 <script setup lang="ts">
+import type { UserSelect } from '@/types'
 import { useDialog } from 'shuimo-ui'
 import { ref } from 'vue'
 import IcRoundSettings from '~icons/ic/round-settings'
-import { useBasePath } from '@/composables/basePath'
-import { useKeyboardDir } from '@/composables/keyboardDir'
+import { useKeyboard } from '@/composables/useKeyboard'
 import Result from './components/Result.vue'
 import SourceTree from './components/SourceTree.vue'
 
-const { handleSetDir, handleResetDir } = useKeyboardDir()
-const { basePath } = useBasePath()
+const { basePath, selectDirectory, resetDirectory } = useKeyboard()
 const { visible, showDialog } = useDialog()
 
-const userSelect = ref({
+const userSelect = ref<UserSelect>({
   source: '',
   sourcePath: '',
   target: '',
   targetPath: '',
 })
 
-function setSource(val: any) {
-  const { name, path } = val
-  userSelect.value.source = name
-  userSelect.value.sourcePath = path
+function setSource(val: { name: string, path: string }) {
+  userSelect.value.source = val.name
+  userSelect.value.sourcePath = val.path
 }
 
-function setTarget(val: any) {
-  const { name, path } = val
-  userSelect.value.target = name
-  userSelect.value.targetPath = path
+function setTarget(val: { name: string, path: string }) {
+  userSelect.value.target = val.name
+  userSelect.value.targetPath = val.path
 }
 </script>
 
@@ -36,7 +33,7 @@ function setTarget(val: any) {
     <div v-if="!basePath" class="w-full h-20 text-center">
       <n-space direction="vertical">
         <p>初次使用时，需要手动设置userdata目录路径</p>
-        <m-button @click="handleSetDir">
+        <m-button @click="selectDirectory">
           选择路径
         </m-button>
       </n-space>
@@ -58,7 +55,7 @@ function setTarget(val: any) {
     <m-dialog v-model:visible="visible" class="[&_.m-model-close-btn]:left-[93%]">
       <div>
         <n-space>
-          <m-button @click="handleResetDir">
+          <m-button @click="resetDirectory">
             重置路径
           </m-button>
         </n-space>

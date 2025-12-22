@@ -33,6 +33,17 @@ jobs:
             exit 1
           fi
 
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Ensure tag exists
+        shell: bash
+        run: |
+          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION 不存在，请先创建并推送标签" >&2
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -41,7 +52,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 10.6.2
+          version: 10.17.0
 
       - name: Get pnpm store directory
         shell: bash
