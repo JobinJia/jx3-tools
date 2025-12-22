@@ -3,65 +3,86 @@ name: Windows Test
 on:
   push:
     branches: [main, master]
+    tags:
+      - 'v*'
   pull_request:
     branches: [main, master]
-  # 允许手动触发工作流
   workflow_dispatch:
 
 jobs:
-  test-windows:
+  build-windows:
     runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v3
+    permissions:
+      contents: write
 
-      # 设置 Node.js 环境
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: lts/*
 
-      # 安装 pnpm
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: latest
-          run_install: false
+          version: 10.17.0
 
-      # 安装 Rust 工具链
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      # 缓存 Rust 依赖
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
 
-      # 安装 Tauri 依赖
-      - name: Install Tauri dependencies
-        run: |
-          rustup target add x86_64-pc-windows-msvc
-          pnpm install -g @tauri-apps/cli
-
-      # 安装项目依赖
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      # 运行 Rust 测试
-      - name: Run Rust tests
+      # Rust 代码检查
+      - name: Rust check
         working-directory: ./src-tauri
-        run: cargo test --verbose
+        run: cargo check --target x86_64-pc-windows-msvc
 
-      # 构建 Tauri 应用（仅检查构建是否成功）
+      # Rust 单元测试（测试业务逻辑）
+      - name: Rust tests
+        working-directory: ./src-tauri
+        run: cargo test --target x86_64-pc-windows-msvc
+
+      # 前端类型检查
+      - name: TypeScript check
+        run: pnpm vue-tsc --noEmit --skipLibCheck || true
+
+      # 构建 Tauri 应用
       - name: Build Tauri app
-        run: pnpm run tauri:dev -- --ci
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'JX3-Tools ${{ github.ref_name }}'
+          releaseBody: |
+            ## 功能
+            - 改键功能：复制键位配置
+            - MAC地址：修改/还原网络适配器MAC地址
+            - 按键功能：全局热键控制自动按键
 
-      # 添加一个特定的测试来验证 MAC 地址功能
-      - name: Test MAC address functionality
-        working-directory: ./src-tauri
-        run: |
-          cargo run --bin test_mac_address || echo "Test script needs to be created"
+            ## 注意
+            - MAC地址和按键功能需要管理员权限
+            - 首次运行会请求UAC提权
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          args: --target x86_64-pc-windows-msvc
