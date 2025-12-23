@@ -31,14 +31,19 @@ pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
     }
 
     let key = match upper.as_str() {
+        // 控制键
         "SPACE" => Key::Space,
-        "ENTER" => Key::Return,
+        "ENTER" | "RETURN" => Key::Return,
         "TAB" => Key::Tab,
         "ESC" | "ESCAPE" => Key::Escape,
+
+        // 方向键
         "UP" | "ARROWUP" => Key::UpArrow,
         "DOWN" | "ARROWDOWN" => Key::DownArrow,
         "LEFT" | "ARROWLEFT" => Key::LeftArrow,
         "RIGHT" | "ARROWRIGHT" => Key::RightArrow,
+
+        // 功能键 F1-F20 (跨平台)
         "F1" => Key::F1,
         "F2" => Key::F2,
         "F3" => Key::F3,
@@ -59,24 +64,63 @@ pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
         "F18" => Key::F18,
         "F19" => Key::F19,
         "F20" => Key::F20,
-        #[cfg(target_os = "windows")]
-        "F21" => Key::F21,
-        #[cfg(target_os = "windows")]
-        "F22" => Key::F22,
-        #[cfg(target_os = "windows")]
-        "F23" => Key::F23,
-        #[cfg(target_os = "windows")]
-        "F24" => Key::F24,
+
+        // macOS Function 键
         #[cfg(target_os = "macos")]
-        "FUNCTION" => Key::Function,
+        "FUNCTION" | "FN" => Key::Function,
+
+        // 导航键
         "HOME" => Key::Home,
         "END" => Key::End,
         "PAGEUP" => Key::PageUp,
         "PAGEDOWN" => Key::PageDown,
-        #[cfg(target_os = "windows")]
-        "INSERT" => Key::Insert,
-        "DELETE" => Key::Delete,
+        "DELETE" | "DEL" => Key::Delete,
         "BACKSPACE" => Key::Backspace,
+
+        // 小键盘数字键
+        "NUM0" | "NUMPAD0" => Key::Numpad0,
+        "NUM1" | "NUMPAD1" => Key::Numpad1,
+        "NUM2" | "NUMPAD2" => Key::Numpad2,
+        "NUM3" | "NUMPAD3" => Key::Numpad3,
+        "NUM4" | "NUMPAD4" => Key::Numpad4,
+        "NUM5" | "NUMPAD5" => Key::Numpad5,
+        "NUM6" | "NUMPAD6" => Key::Numpad6,
+        "NUM7" | "NUMPAD7" => Key::Numpad7,
+        "NUM8" | "NUMPAD8" => Key::Numpad8,
+        "NUM9" | "NUMPAD9" => Key::Numpad9,
+
+        // 小键盘运算符
+        "NUMADD" | "NUMPLUS" => Key::Add,
+        "NUMSUB" | "NUMMINUS" => Key::Subtract,
+        "NUMMUL" | "NUMSTAR" | "NUMMULTIPLY" => Key::Multiply,
+        "NUMDIV" | "NUMSLASH" | "NUMDIVIDE" => Key::Divide,
+        "NUMDOT" | "NUMDECIMAL" => Key::Decimal,
+
+        // 锁定键
+        "CAPSLOCK" | "CAPS" => Key::CapsLock,
+
+        // 修饰键
+        "ALT" => Key::Alt,
+        "CTRL" | "CONTROL" => Key::Control,
+        "SHIFT" => Key::Shift,
+        "LSHIFT" | "LEFTSHIFT" => Key::LShift,
+        "RSHIFT" | "RIGHTSHIFT" => Key::RShift,
+        "LCTRL" | "LCONTROL" | "LEFTCTRL" => Key::LControl,
+        "RCTRL" | "RCONTROL" | "RIGHTCTRL" => Key::RControl,
+        "WIN" | "META" | "SUPER" | "WINDOWS" => Key::Meta,
+        #[cfg(target_os = "macos")]
+        "CMD" | "COMMAND" => Key::Meta,
+        #[cfg(target_os = "macos")]
+        "OPTION" | "OPT" => Key::Option,
+
+        // 媒体键
+        "PLAYPAUSE" | "MEDIAPLAYPAUSE" => Key::MediaPlayPause,
+        "NEXTTRACK" | "MEDIANEXT" | "MEDIANEXTTRACK" => Key::MediaNextTrack,
+        "PREVTRACK" | "MEDIAPREV" | "MEDIAPREVTRACK" => Key::MediaPrevTrack,
+        "VOLUMEUP" | "VOLUP" => Key::VolumeUp,
+        "VOLUMEDOWN" | "VOLDOWN" => Key::VolumeDown,
+        "MUTE" | "VOLUMEMUTE" => Key::VolumeMute,
+
         _ => return Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
     };
     Ok(key)

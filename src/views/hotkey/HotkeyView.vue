@@ -2,7 +2,7 @@
 import type { HotkeyConfig } from '@/types'
 import { useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
-import { computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useHotkeyStore } from '@/stores/hotkey'
 
 const message = useMessage()
@@ -15,6 +15,11 @@ const formValue = reactive<HotkeyConfig>({
   startHotkey: 'F11',
   stopHotkey: 'F12',
 })
+
+// 输入框焦点状态
+const triggerKeyFocused = ref(false)
+const startHotkeyFocused = ref(false)
+const stopHotkeyFocused = ref(false)
 
 watch(
   config,
@@ -33,6 +38,101 @@ const statusType = computed(() => {
     return 'warning'
   return 'default'
 })
+
+// 将 KeyboardEvent.key 转换为按键名称
+function keyEventToKeyName(e: KeyboardEvent): string {
+  const key = e.key
+
+  // 特殊键映射
+  const keyMap: Record<string, string> = {
+    ' ': 'Space',
+    'ArrowUp': 'Up',
+    'ArrowDown': 'Down',
+    'ArrowLeft': 'Left',
+    'ArrowRight': 'Right',
+    'Control': 'Ctrl',
+    'Meta': navigator.platform.includes('Mac') ? 'Cmd' : 'Win',
+  }
+
+  if (keyMap[key])
+    return keyMap[key]
+
+  // F1-F20 保持原样
+  if (/^F\d+$/.test(key))
+    return key
+
+  // 单个字符转大写
+  if (key.length === 1)
+    return key.toUpperCase()
+
+  // 其他按键首字母大写
+  return key.charAt(0).toUpperCase() + key.slice(1)
+}
+
+// 构建组合键字符串（用于开始/结束热键）
+function buildHotkeyString(e: KeyboardEvent): string {
+  const parts: string[] = []
+
+  if (e.ctrlKey)
+    parts.push('Ctrl')
+  if (e.altKey)
+    parts.push('Alt')
+  if (e.shiftKey)
+    parts.push('Shift')
+  if (e.metaKey)
+    parts.push(navigator.platform.includes('Mac') ? 'Cmd' : 'Win')
+
+  const key = e.key
+
+  // 忽略单独的修饰键
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(key))
+    return ''
+
+  parts.push(keyEventToKeyName(e))
+  return parts.join('+')
+}
+
+// 处理触发按键的键盘事件（只捕获单个按键）
+function handleTriggerKeyDown(e: KeyboardEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+
+  // 忽略单独的修饰键
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key))
+    return
+
+  formValue.triggerKey = keyEventToKeyName(e)
+  triggerKeyFocused.value = false
+  ;(e.target as HTMLInputElement)?.blur()
+}
+
+// 处理开始热键的键盘事件（支持组合键）
+function handleStartHotkeyKeyDown(e: KeyboardEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+
+  const hotkey = buildHotkeyString(e)
+  if (!hotkey)
+    return
+
+  formValue.startHotkey = hotkey
+  startHotkeyFocused.value = false
+  ;(e.target as HTMLInputElement)?.blur()
+}
+
+// 处理结束热键的键盘事件（支持组合键）
+function handleStopHotkeyKeyDown(e: KeyboardEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+
+  const hotkey = buildHotkeyString(e)
+  if (!hotkey)
+    return
+
+  formValue.stopHotkey = hotkey
+  stopHotkeyFocused.value = false
+  ;(e.target as HTMLInputElement)?.blur()
+}
 
 async function loadInitialData() {
   try {
@@ -72,16 +172,40 @@ onUnmounted(() => {
           class="hotkey-form"
         >
           <n-form-item label="触发按键">
-            <n-input v-model:value="formValue.triggerKey" placeholder="例如：1、Q、F6" maxlength="10" clearable />
+            <n-input
+              :value="triggerKeyFocused ? '请按下按键...' : formValue.triggerKey"
+              :placeholder="triggerKeyFocused ? '请按下按键...' : '点击后按下按键'"
+              readonly
+              :status="triggerKeyFocused ? 'warning' : undefined"
+              @focus="triggerKeyFocused = true"
+              @blur="triggerKeyFocused = false"
+              @keydown="handleTriggerKeyDown"
+            />
           </n-form-item>
           <n-form-item label="触发频率 (毫秒)">
             <n-input-number v-model:value="formValue.intervalMs" :min="20" :step="50" />
           </n-form-item>
           <n-form-item label="开始热键">
-            <n-input v-model:value="formValue.startHotkey" placeholder="例如：F11 或 Ctrl+Alt+S" clearable />
+            <n-input
+              :value="startHotkeyFocused ? '请按下按键...' : formValue.startHotkey"
+              :placeholder="startHotkeyFocused ? '请按下按键...' : '点击后按下按键(支持组合键)'"
+              readonly
+              :status="startHotkeyFocused ? 'warning' : undefined"
+              @focus="startHotkeyFocused = true"
+              @blur="startHotkeyFocused = false"
+              @keydown="handleStartHotkeyKeyDown"
+            />
           </n-form-item>
           <n-form-item label="结束热键">
-            <n-input v-model:value="formValue.stopHotkey" placeholder="例如：F12 或 Ctrl+Alt+D" clearable />
+            <n-input
+              :value="stopHotkeyFocused ? '请按下按键...' : formValue.stopHotkey"
+              :placeholder="stopHotkeyFocused ? '请按下按键...' : '点击后按下按键(支持组合键)'"
+              readonly
+              :status="stopHotkeyFocused ? 'warning' : undefined"
+              @focus="stopHotkeyFocused = true"
+              @blur="stopHotkeyFocused = false"
+              @keydown="handleStopHotkeyKeyDown"
+            />
           </n-form-item>
           <n-form-item>
             <n-space>
@@ -106,7 +230,7 @@ onUnmounted(() => {
             控制任务（Windows 与 macOS 均支持）。
           </p>
           <p>2. 软件最小化或在后台时同样生效，请避免与系统或其他软件热键冲突；macOS 需在“系统设置 → 隐私与安全性 → 辅助功能”中允许应用控制键盘。</p>
-          <p>3. 触发按键支持字母、数字、功能键（Windows 可至 F24，macOS 至 F20）以及常用操作键（空格、方向键等）。</p>
+          <p>3. 点击输入框后按下键盘按键即可设置；支持字母、数字、功能键、小键盘、方向键、修饰键、媒体键等。</p>
         </n-alert>
       </n-spin>
     </n-card>
