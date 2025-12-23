@@ -4,6 +4,7 @@ use tauri::{command, AppHandle};
 
 use crate::app_state::AppState;
 use crate::error::AppResult;
+use crate::services::hotkey::window::WindowInfo;
 use crate::services::hotkey::{HotkeyConfig, HotkeyStatus};
 
 /// Get the current hotkey configuration
@@ -36,4 +37,18 @@ pub fn save_hotkey_config(
 pub fn stop_hotkey_task(app: AppHandle, state: tauri::State<AppState>) {
     log::debug!("Command: stop_hotkey_task");
     state.hotkey().stop_runner(&app);
+}
+
+/// 获取可见窗口列表（仅 Windows）
+#[command]
+pub fn list_windows(filter: Option<String>) -> AppResult<Vec<WindowInfo>> {
+    log::debug!("Command: list_windows(filter={:?})", filter);
+    crate::services::hotkey::window::enumerate_windows(filter.as_deref())
+}
+
+/// 检查窗口是否仍然有效
+#[command]
+pub fn check_window_valid(hwnd: u64) -> bool {
+    log::debug!("Command: check_window_valid(hwnd={})", hwnd);
+    crate::services::hotkey::window::is_window_valid(hwnd)
 }

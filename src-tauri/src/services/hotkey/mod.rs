@@ -9,9 +9,12 @@ mod config;
 mod keys;
 mod shortcuts;
 mod types;
+pub mod window;
 
 pub use config::CONFIG_FILE_NAME;
 pub use types::{HotkeyConfig, HotkeyStatus};
+#[cfg(target_os = "windows")]
+pub use types::{KeyMode, TargetWindow};
 
 use std::path::PathBuf;
 use std::sync::{
@@ -221,11 +224,46 @@ impl HotkeyService {
                 (guard.config.clone(), key)
             };
 
+            // 窗口模式额外验证
+            #[cfg(target_os = "windows")]
+            let (key_mode, target_hwnd) = {
+                let mode = config.key_mode.clone();
+                let hwnd = if mode == types::KeyMode::Window {
+                    match &config.target_window {
+                        Some(tw) => {
+                            if !window::is_window_valid(tw.hwnd) {
+                                return Err(AppError::Hotkey("目标窗口已关闭，请重新选择".into()));
+                            }
+                            Some(tw.hwnd)
+                        }
+                        None => return Err(AppError::Hotkey("窗口模式需要选择目标窗口".into())),
+                    }
+                } else {
+                    None
+                };
+                (mode, hwnd)
+            };
+
             let stop_flag = Arc::new(AtomicBool::new(false));
             let stop_clone = Arc::clone(&stop_flag);
             let service = Arc::clone(self);
             let app_handle = app.clone();
 
+            #[cfg(target_os = "windows")]
+            let handle = thread::spawn(move || {
+                run_key_loop(
+                    &stop_clone,
+                    &service,
+                    &app_handle,
+                    key,
+                    config.interval_ms,
+                    key_mode,
+                    target_hwnd,
+                );
+                service.finish_running(&app_handle);
+            });
+
+            #[cfg(target_os = "macos")]
             let handle = thread::spawn(move || {
                 run_key_loop(&stop_clone, &service, &app_handle, key, config.interval_ms);
                 service.finish_running(&app_handle);
@@ -273,8 +311,69 @@ impl HotkeyService {
     }
 }
 
-/// Run the key sending loop
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+/// Run the key sending loop (Windows version with dual mode support)
+#[cfg(target_os = "windows")]
+fn run_key_loop(
+    stop_flag: &Arc<AtomicBool>,
+    service: &Arc<HotkeyService>,
+    _app_handle: &AppHandle,
+    key: Key,
+    interval_ms: u64,
+    key_mode: types::KeyMode,
+    target_hwnd: Option<u64>,
+) {
+    match key_mode {
+        types::KeyMode::Global => {
+            // 全局模式：使用 Enigo
+            let mut enigo = match Enigo::new(&Settings::default()) {
+                Ok(e) => e,
+                Err(err) => {
+                    log::error!("创建 Enigo 实例失败: {}", err);
+                    return;
+                }
+            };
+
+            while !stop_flag.load(Ordering::SeqCst) {
+                if let Err(err) = keys::send_key_windows(&mut enigo, key) {
+                    log::error!("热键触发失败: {}", err);
+                }
+                sleep_with_interrupt(stop_flag, interval_ms);
+            }
+        }
+        types::KeyMode::Window => {
+            // 窗口模式：使用 Windows API
+            let hwnd = match target_hwnd {
+                Some(h) => h,
+                None => {
+                    log::error!("窗口模式未指定目标窗口");
+                    return;
+                }
+            };
+
+            // 解析为 Virtual Key Code
+            let config = service.get_config();
+            let vk = match keys::parse_to_virtual_key(&config.trigger_key) {
+                Ok(v) => v,
+                Err(err) => {
+                    log::error!("解析按键失败: {}", err);
+                    return;
+                }
+            };
+
+            while !stop_flag.load(Ordering::SeqCst) {
+                if let Err(err) = window::send_key_to_window(hwnd, vk) {
+                    log::error!("发送窗口按键失败: {}", err);
+                    // 窗口可能已关闭，停止任务
+                    break;
+                }
+                sleep_with_interrupt(stop_flag, interval_ms);
+            }
+        }
+    }
+}
+
+/// Run the key sending loop (macOS version - global mode only)
+#[cfg(target_os = "macos")]
 fn run_key_loop(
     stop_flag: &Arc<AtomicBool>,
     _service: &Arc<HotkeyService>,
@@ -282,31 +381,10 @@ fn run_key_loop(
     key: Key,
     interval_ms: u64,
 ) {
-    #[cfg(target_os = "windows")]
-    {
-        let mut enigo = match Enigo::new(&Settings::default()) {
-            Ok(e) => e,
-            Err(err) => {
-                log::error!("创建 Enigo 实例失败: {}", err);
-                return;
-            }
-        };
-
-        while !stop_flag.load(Ordering::SeqCst) {
-            if let Err(err) = keys::send_key_windows(&mut enigo, key) {
-                log::error!("热键触发失败: {}", err);
-            }
-            sleep_with_interrupt(stop_flag, interval_ms);
+    while !stop_flag.load(Ordering::SeqCst) {
+        if let Err(err) = keys::send_key_macos(app_handle, key) {
+            log::error!("热键触发失败: {}", err);
         }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        while !stop_flag.load(Ordering::SeqCst) {
-            if let Err(err) = keys::send_key_macos(app_handle, key) {
-                log::error!("热键触发失败: {}", err);
-            }
-            sleep_with_interrupt(stop_flag, interval_ms);
-        }
+        sleep_with_interrupt(stop_flag, interval_ms);
     }
 }

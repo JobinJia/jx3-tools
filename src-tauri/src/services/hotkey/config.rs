@@ -5,7 +5,7 @@ use std::str::FromStr;
 use tauri_plugin_global_shortcut::Shortcut;
 
 use crate::error::{AppError, AppResult};
-use super::types::HotkeyConfig;
+use super::types::{HotkeyConfig, KeyMode};
 
 pub const CONFIG_FILE_NAME: &str = "hotkey_config.json";
 
@@ -57,6 +57,17 @@ pub fn validate_config(config: &HotkeyConfig) -> AppResult<()> {
         .map_err(|e| AppError::Hotkey(format!("开始热键格式无效: {e}")))?;
     Shortcut::from_str(&config.stop_hotkey)
         .map_err(|e| AppError::Hotkey(format!("结束热键格式无效: {e}")))?;
+
+    // 窗口模式验证
+    if config.key_mode == KeyMode::Window {
+        #[cfg(not(target_os = "windows"))]
+        return Err(AppError::Hotkey("窗口模式仅支持 Windows".into()));
+
+        #[cfg(target_os = "windows")]
+        if config.target_window.is_none() {
+            return Err(AppError::Hotkey("窗口模式需要选择目标窗口".into()));
+        }
+    }
 
     Ok(())
 }

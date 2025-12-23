@@ -6,6 +6,25 @@ use std::thread;
 
 use serde::{Deserialize, Serialize};
 
+/// 按键发送模式
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyMode {
+    #[default]
+    Global, // 全局模式，使用 enigo 发送
+    Window, // 窗口模式，使用 Windows API 发送到指定窗口
+}
+
+/// 目标窗口信息
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetWindow {
+    pub hwnd: u64,           // 窗口句柄
+    pub title: String,       // 窗口标题
+    pub class_name: String,  // 窗口类名
+    pub process_name: String, // 进程名
+}
+
 /// Configuration for hotkey automation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,6 +33,10 @@ pub struct HotkeyConfig {
     pub interval_ms: u64,
     pub start_hotkey: String,
     pub stop_hotkey: String,
+    #[serde(default)]
+    pub key_mode: KeyMode,
+    #[serde(default)]
+    pub target_window: Option<TargetWindow>,
 }
 
 impl Default for HotkeyConfig {
@@ -23,6 +46,8 @@ impl Default for HotkeyConfig {
             interval_ms: 1000,
             start_hotkey: "F11".to_string(),
             stop_hotkey: "F12".to_string(),
+            key_mode: KeyMode::default(),
+            target_window: None,
         }
     }
 }

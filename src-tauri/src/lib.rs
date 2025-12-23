@@ -71,6 +71,8 @@ pub fn run() {
             get_hotkey_status,
             save_hotkey_config,
             stop_hotkey_task,
+            list_windows,
+            check_window_valid,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

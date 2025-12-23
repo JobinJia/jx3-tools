@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { HotkeyConfig } from '@/types'
+import type { HotkeyConfig, WindowInfo } from '@/types'
 import { useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { hotkeyService } from '@/services'
 import { useHotkeyStore } from '@/stores/hotkey'
 
 const message = useMessage()
@@ -14,7 +15,19 @@ const formValue = reactive<HotkeyConfig>({
   intervalMs: 1000,
   startHotkey: 'F11',
   stopHotkey: 'F12',
+  keyMode: 'global',
+  targetWindow: null,
 })
+
+// 窗口列表相关
+const windowList = ref<WindowInfo[]>([])
+const windowFilter = ref('')
+const windowLoading = ref(false)
+const refreshTimer = ref<number | null>(null)
+
+// 平台检测
+const isWindows = computed(() => navigator.platform.toLowerCase().includes('win'))
+const isWindowMode = computed(() => formValue.keyMode === 'window')
 
 // 输入框焦点状态
 const triggerKeyFocused = ref(false)
@@ -134,9 +147,69 @@ function handleStopHotkeyKeyDown(e: KeyboardEvent) {
   ;(e.target as HTMLInputElement)?.blur()
 }
 
+// 获取窗口列表
+async function fetchWindows() {
+  if (!isWindows.value)
+    return
+
+  windowLoading.value = true
+  try {
+    windowList.value = await hotkeyService.listWindows(windowFilter.value || undefined)
+  } catch (error) {
+    console.error('获取窗口列表失败:', error)
+  } finally {
+    windowLoading.value = false
+  }
+}
+
+// 选择窗口
+function handleWindowSelect(hwnd: number | null) {
+  if (hwnd === null) {
+    formValue.targetWindow = null
+    return
+  }
+  const win = windowList.value.find(w => w.hwnd === hwnd)
+  if (win) {
+    formValue.targetWindow = {
+      hwnd: win.hwnd,
+      title: win.title,
+      className: win.className,
+      processName: win.processName,
+    }
+  }
+}
+
+// 窗口选项
+const windowOptions = computed(() =>
+  windowList.value.map(w => ({
+    label: w.displayName,
+    value: w.hwnd,
+  })),
+)
+
+// 监听模式切换
+watch(isWindowMode, (newVal) => {
+  if (newVal && isWindows.value) {
+    fetchWindows()
+    // 启动自动刷新（每 5 秒）
+    refreshTimer.value = window.setInterval(fetchWindows, 5000)
+  } else {
+    // 清理定时器
+    if (refreshTimer.value) {
+      clearInterval(refreshTimer.value)
+      refreshTimer.value = null
+    }
+  }
+})
+
 async function loadInitialData() {
   try {
     await hotkeyStore.init()
+    // 如果是窗口模式，加载窗口列表
+    if (formValue.keyMode === 'window' && isWindows.value) {
+      fetchWindows()
+      refreshTimer.value = window.setInterval(fetchWindows, 5000)
+    }
   } catch (error) {
     console.error('加载按键配置失败:', error)
     message.error('加载按键配置失败')
@@ -160,6 +233,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   void hotkeyStore.disposeListener()
+  if (refreshTimer.value) {
+    clearInterval(refreshTimer.value)
+    refreshTimer.value = null
+  }
 })
 </script>
 
@@ -171,6 +248,52 @@ onUnmounted(() => {
           v-if="config" label-placement="left" :label-width="120" :model="formValue" size="medium"
           class="hotkey-form"
         >
+          <n-form-item label="按键模式">
+            <n-space align="center">
+              <n-switch
+                :value="formValue.keyMode === 'window'"
+                :disabled="!isWindows"
+                @update:value="(val: boolean) => formValue.keyMode = val ? 'window' : 'global'"
+              >
+                <template #checked>
+                  窗口
+                </template>
+                <template #unchecked>
+                  全局
+                </template>
+              </n-switch>
+              <n-text v-if="!isWindows" depth="3">
+                (窗口模式仅支持 Windows)
+              </n-text>
+            </n-space>
+          </n-form-item>
+          <n-form-item v-if="isWindowMode && isWindows" label="目标窗口">
+            <n-space vertical style="width: 100%">
+              <n-input-group>
+                <n-input
+                  v-model:value="windowFilter"
+                  placeholder="输入关键词过滤窗口..."
+                  clearable
+                  @update:value="fetchWindows"
+                />
+                <n-button :loading="windowLoading" @click="fetchWindows">
+                  刷新
+                </n-button>
+              </n-input-group>
+              <n-select
+                :value="formValue.targetWindow?.hwnd ?? null"
+                :options="windowOptions"
+                placeholder="选择目标窗口"
+                filterable
+                clearable
+                :loading="windowLoading"
+                @update:value="handleWindowSelect"
+              />
+              <n-text v-if="formValue.targetWindow" depth="3">
+                已选择: {{ formValue.targetWindow.title }}
+              </n-text>
+            </n-space>
+          </n-form-item>
           <n-form-item label="触发按键">
             <n-input
               :value="triggerKeyFocused ? '请按下按键...' : formValue.triggerKey"
@@ -224,12 +347,18 @@ onUnmounted(() => {
         <n-alert v-if="status.lastError" type="warning" title="执行失败" class="mt-3" :bordered="false">
           {{ status.lastError }}
         </n-alert>
+        <n-alert v-if="isWindowMode && isWindows" type="warning" class="mt-3" :bordered="false">
+          <p><b>窗口模式说明：</b></p>
+          <p>1. 按键将发送到指定窗口，即使窗口不在前台也能接收。</p>
+          <p>2. 部分游戏或应用可能会屏蔽此方式的按键。</p>
+          <p>3. 如果目标窗口关闭，任务会自动停止。</p>
+        </n-alert>
         <n-alert type="info" class="mt-3" :bordered="false">
           <p>
             1. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b> / <b>{{ formValue.stopHotkey || '结束热键' }}</b>
             控制任务（Windows 与 macOS 均支持）。
           </p>
-          <p>2. 软件最小化或在后台时同样生效，请避免与系统或其他软件热键冲突；macOS 需在“系统设置 → 隐私与安全性 → 辅助功能”中允许应用控制键盘。</p>
+          <p>2. 软件最小化或在后台时同样生效，请避免与系统或其他软件热键冲突；macOS 需在"系统设置 → 隐私与安全性 → 辅助功能"中允许应用控制键盘。</p>
           <p>3. 点击输入框后按下键盘按键即可设置；支持字母、数字、功能键、小键盘、方向键、修饰键、媒体键等。</p>
         </n-alert>
       </n-spin>

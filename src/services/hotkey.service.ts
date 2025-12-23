@@ -1,4 +1,4 @@
-import type { HotkeyConfig, HotkeyStatus } from '@/types'
+import type { HotkeyConfig, HotkeyStatus, WindowInfo } from '@/types'
 import { invoke } from '@tauri-apps/api/core'
 
 export const hotkeyService = {
@@ -28,5 +28,19 @@ export const hotkeyService = {
    */
   async stopTask(): Promise<void> {
     return invoke<void>('stop_hotkey_task')
+  },
+
+  /**
+   * Get list of visible windows (Windows only)
+   */
+  async listWindows(filter?: string): Promise<WindowInfo[]> {
+    return invoke<WindowInfo[]>('list_windows', { filter: filter || null })
+  },
+
+  /**
+   * Check if a window is still valid
+   */
+  async checkWindowValid(hwnd: number): Promise<boolean> {
+    return invoke<boolean>('check_window_valid', { hwnd })
   },
 }
