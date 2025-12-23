@@ -103,7 +103,7 @@ mod windows_impl {
 
         let windows = &mut *(lparam.0 as *mut Vec<WindowInfo>);
         windows.push(WindowInfo {
-            hwnd: hwnd.0 as u64,
+            hwnd: hwnd.0 as usize as u64,
             title,
             class_name,
             process_name,
@@ -145,28 +145,19 @@ mod windows_impl {
         result
     }
 
-    /// 将 u64 转换为 HWND，检查范围有效性
-    fn u64_to_hwnd(hwnd: u64) -> Option<HWND> {
-        // 在 64 位系统上，isize 最大值是 i64::MAX
-        // 确保 hwnd 不超过 isize::MAX
-        if hwnd > isize::MAX as u64 {
-            return None;
-        }
-        Some(HWND(hwnd as isize))
+    /// 将 u64 转换为 HWND
+    fn u64_to_hwnd(hwnd: u64) -> HWND {
+        HWND(hwnd as *mut std::ffi::c_void)
     }
 
     /// 检查窗口是否有效
     pub fn is_window_valid(hwnd: u64) -> bool {
-        match u64_to_hwnd(hwnd) {
-            Some(h) => unsafe { IsWindow(h).as_bool() },
-            None => false,
-        }
+        unsafe { IsWindow(u64_to_hwnd(hwnd)).as_bool() }
     }
 
     /// 向指定窗口发送按键
     pub fn send_key_to_window(hwnd: u64, virtual_key: u16) -> AppResult<()> {
-        let hwnd = u64_to_hwnd(hwnd)
-            .ok_or_else(|| AppError::Hotkey("无效的窗口句柄".into()))?;
+        let hwnd = u64_to_hwnd(hwnd);
 
         unsafe {
             if !IsWindow(hwnd).as_bool() {

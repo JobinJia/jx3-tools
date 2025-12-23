@@ -13,8 +13,6 @@ pub mod window;
 
 pub use config::CONFIG_FILE_NAME;
 pub use types::{HotkeyConfig, HotkeyStatus};
-#[cfg(target_os = "windows")]
-pub use types::{KeyMode, TargetWindow};
 
 use std::path::PathBuf;
 use std::sync::{

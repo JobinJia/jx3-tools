@@ -5,7 +5,9 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use enigo::{Direction, Enigo, Key, Keyboard};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use enigo::Settings;
 
 #[cfg(target_os = "macos")]
 use std::sync::mpsc;
