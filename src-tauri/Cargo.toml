@@ -22,9 +22,6 @@ crate-type = [
 [build-dependencies]
 tauri-build = { version = "2.5.3", features = [] }
 
-[target.'cfg(windows)'.build-dependencies]
-winres = "0.1"
-
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
   "Win32_Foundation",
