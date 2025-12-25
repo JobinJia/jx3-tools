@@ -7,7 +7,6 @@
   ],
   "permissions": [
     "core:default",
-    "dialog:default",
-    "global-shortcut:default"
+    "dialog:default"
   ]
 }

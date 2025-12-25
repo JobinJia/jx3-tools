@@ -22,6 +22,16 @@ crate-type = [
 [build-dependencies]
 tauri-build = { version = "2.5.3", features = [] }
 
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_System_Threading",
+] }
+
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = [ "derive" ] }
@@ -31,16 +41,8 @@ tauri-plugin-log = "2.7.1"
 tauri-plugin-dialog = "2.4.2"
 dirs = "6.0"
 mac_address = "1.1.8"
-enigo = "0.6"
-tauri-plugin-global-shortcut = "2.3.1"
+rdev = { git = "https://github.com/fufesou/rdev" }
 thiserror = "2.0"
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
-  "Win32_Foundation",
-  "Win32_UI_WindowsAndMessaging",
-  "Win32_System_Threading",
-] }
 
 [[bin]]
 name = "app"

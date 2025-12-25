@@ -34,6 +34,7 @@ pub fn run() {
     }));
 
     tauri::Builder::default()
+        .device_event_filter(tauri::DeviceEventFilter::Never)
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
@@ -44,7 +45,6 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::default().build())
         .setup(|app| {
             let state = match AppState::initialize(&app.handle()) {
                 Ok(state) => state,

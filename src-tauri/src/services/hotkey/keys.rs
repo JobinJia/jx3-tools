@@ -5,18 +5,11 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use enigo::{Direction, Enigo, Key, Keyboard};
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-use enigo::Settings;
-
-#[cfg(target_os = "macos")]
-use std::sync::mpsc;
-#[cfg(target_os = "macos")]
-use tauri::AppHandle;
+use rdev::{EventType, Key, simulate};
 
 use crate::error::{AppError, AppResult};
 
-/// 将按键名称解析为 Windows Virtual Key Code
+/// 将按键名称解析为 Windows Virtual Key Code (用于窗口模式)
 #[cfg(target_os = "windows")]
 pub fn parse_to_virtual_key(label: &str) -> AppResult<u16> {
     let trimmed = label.trim();
@@ -115,8 +108,7 @@ pub fn parse_to_virtual_key(label: &str) -> AppResult<u16> {
     Ok(vk)
 }
 
-/// Parse a key label into an enigo Key
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+/// 将按键名称解析为 rdev Key
 pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
     let trimmed = label.trim();
     if trimmed.is_empty() {
@@ -124,10 +116,56 @@ pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
     }
     let upper = trimmed.to_uppercase();
 
-    // Single character keys
+    // 单字符按键
     if upper.len() == 1 {
-        if let Some(ch) = upper.chars().next() {
-            return Ok(Key::Unicode(ch));
+        let ch = upper.chars().next().unwrap();
+        // 字母 A-Z
+        if ch.is_ascii_uppercase() {
+            return match ch {
+                'A' => Ok(Key::KeyA),
+                'B' => Ok(Key::KeyB),
+                'C' => Ok(Key::KeyC),
+                'D' => Ok(Key::KeyD),
+                'E' => Ok(Key::KeyE),
+                'F' => Ok(Key::KeyF),
+                'G' => Ok(Key::KeyG),
+                'H' => Ok(Key::KeyH),
+                'I' => Ok(Key::KeyI),
+                'J' => Ok(Key::KeyJ),
+                'K' => Ok(Key::KeyK),
+                'L' => Ok(Key::KeyL),
+                'M' => Ok(Key::KeyM),
+                'N' => Ok(Key::KeyN),
+                'O' => Ok(Key::KeyO),
+                'P' => Ok(Key::KeyP),
+                'Q' => Ok(Key::KeyQ),
+                'R' => Ok(Key::KeyR),
+                'S' => Ok(Key::KeyS),
+                'T' => Ok(Key::KeyT),
+                'U' => Ok(Key::KeyU),
+                'V' => Ok(Key::KeyV),
+                'W' => Ok(Key::KeyW),
+                'X' => Ok(Key::KeyX),
+                'Y' => Ok(Key::KeyY),
+                'Z' => Ok(Key::KeyZ),
+                _ => Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
+            };
+        }
+        // 数字 0-9
+        if ch.is_ascii_digit() {
+            return match ch {
+                '0' => Ok(Key::Num0),
+                '1' => Ok(Key::Num1),
+                '2' => Ok(Key::Num2),
+                '3' => Ok(Key::Num3),
+                '4' => Ok(Key::Num4),
+                '5' => Ok(Key::Num5),
+                '6' => Ok(Key::Num6),
+                '7' => Ok(Key::Num7),
+                '8' => Ok(Key::Num8),
+                '9' => Ok(Key::Num9),
+                _ => Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
+            };
         }
     }
 
@@ -137,6 +175,8 @@ pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
         "ENTER" | "RETURN" => Key::Return,
         "TAB" => Key::Tab,
         "ESC" | "ESCAPE" => Key::Escape,
+        "BACKSPACE" => Key::Backspace,
+        "DELETE" | "DEL" => Key::Delete,
 
         // 方向键
         "UP" | "ARROWUP" => Key::UpArrow,
@@ -144,7 +184,7 @@ pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
         "LEFT" | "ARROWLEFT" => Key::LeftArrow,
         "RIGHT" | "ARROWRIGHT" => Key::RightArrow,
 
-        // 功能键 F1-F20 (跨平台)
+        // 功能键 F1-F12
         "F1" => Key::F1,
         "F2" => Key::F2,
         "F3" => Key::F3,
@@ -157,146 +197,75 @@ pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
         "F10" => Key::F10,
         "F11" => Key::F11,
         "F12" => Key::F12,
-        "F13" => Key::F13,
-        "F14" => Key::F14,
-        "F15" => Key::F15,
-        "F16" => Key::F16,
-        "F17" => Key::F17,
-        "F18" => Key::F18,
-        "F19" => Key::F19,
-        "F20" => Key::F20,
-
-        // macOS Function 键
-        #[cfg(target_os = "macos")]
-        "FUNCTION" | "FN" => Key::Function,
 
         // 导航键
         "HOME" => Key::Home,
         "END" => Key::End,
         "PAGEUP" => Key::PageUp,
         "PAGEDOWN" => Key::PageDown,
-        "DELETE" | "DEL" => Key::Delete,
-        "BACKSPACE" => Key::Backspace,
+        "INSERT" => Key::Insert,
 
         // 小键盘数字键
-        "NUM0" | "NUMPAD0" => Key::Numpad0,
-        "NUM1" | "NUMPAD1" => Key::Numpad1,
-        "NUM2" | "NUMPAD2" => Key::Numpad2,
-        "NUM3" | "NUMPAD3" => Key::Numpad3,
-        "NUM4" | "NUMPAD4" => Key::Numpad4,
-        "NUM5" | "NUMPAD5" => Key::Numpad5,
-        "NUM6" | "NUMPAD6" => Key::Numpad6,
-        "NUM7" | "NUMPAD7" => Key::Numpad7,
-        "NUM8" | "NUMPAD8" => Key::Numpad8,
-        "NUM9" | "NUMPAD9" => Key::Numpad9,
+        "NUM0" | "NUMPAD0" => Key::Kp0,
+        "NUM1" | "NUMPAD1" => Key::Kp1,
+        "NUM2" | "NUMPAD2" => Key::Kp2,
+        "NUM3" | "NUMPAD3" => Key::Kp3,
+        "NUM4" | "NUMPAD4" => Key::Kp4,
+        "NUM5" | "NUMPAD5" => Key::Kp5,
+        "NUM6" | "NUMPAD6" => Key::Kp6,
+        "NUM7" | "NUMPAD7" => Key::Kp7,
+        "NUM8" | "NUMPAD8" => Key::Kp8,
+        "NUM9" | "NUMPAD9" => Key::Kp9,
 
         // 小键盘运算符
-        "NUMADD" | "NUMPLUS" => Key::Add,
-        "NUMSUB" | "NUMMINUS" => Key::Subtract,
-        "NUMMUL" | "NUMSTAR" | "NUMMULTIPLY" => Key::Multiply,
-        "NUMDIV" | "NUMSLASH" | "NUMDIVIDE" => Key::Divide,
-        "NUMDOT" | "NUMDECIMAL" => Key::Decimal,
+        "NUMADD" | "NUMPLUS" => Key::KpPlus,
+        "NUMSUB" | "NUMMINUS" => Key::KpMinus,
+        "NUMMUL" | "NUMSTAR" | "NUMMULTIPLY" => Key::KpMultiply,
+        "NUMDIV" | "NUMSLASH" | "NUMDIVIDE" => Key::KpDivide,
+        // 小键盘小数点 - rdev 没有专门的 KpDecimal，使用 Delete 作为替代
+        "NUMDOT" | "NUMDECIMAL" => Key::Delete,
 
         // 锁定键
         "CAPSLOCK" | "CAPS" => Key::CapsLock,
+        "NUMLOCK" => Key::NumLock,
+        "SCROLLLOCK" => Key::ScrollLock,
 
         // 修饰键
         "ALT" => Key::Alt,
-        "CTRL" | "CONTROL" => Key::Control,
-        "SHIFT" => Key::Shift,
-        "LSHIFT" | "LEFTSHIFT" => Key::LShift,
-        "RSHIFT" | "RIGHTSHIFT" => Key::RShift,
-        "LCTRL" | "LCONTROL" | "LEFTCTRL" => Key::LControl,
-        "RCTRL" | "RCONTROL" | "RIGHTCTRL" => Key::RControl,
-        "WIN" | "META" | "SUPER" | "WINDOWS" => Key::Meta,
+        "CTRL" | "CONTROL" => Key::ControlLeft,
+        "SHIFT" => Key::ShiftLeft,
+        "LSHIFT" | "LEFTSHIFT" => Key::ShiftLeft,
+        "RSHIFT" | "RIGHTSHIFT" => Key::ShiftRight,
+        "LCTRL" | "LCONTROL" | "LEFTCTRL" => Key::ControlLeft,
+        "RCTRL" | "RCONTROL" | "RIGHTCTRL" => Key::ControlRight,
+        "WIN" | "META" | "SUPER" | "WINDOWS" => Key::MetaLeft,
         #[cfg(target_os = "macos")]
-        "CMD" | "COMMAND" => Key::Meta,
+        "CMD" | "COMMAND" => Key::MetaLeft,
         #[cfg(target_os = "macos")]
-        "OPTION" | "OPT" => Key::Option,
-
-        // 媒体键
-        "PLAYPAUSE" | "MEDIAPLAYPAUSE" => Key::MediaPlayPause,
-        "NEXTTRACK" | "MEDIANEXT" | "MEDIANEXTTRACK" => Key::MediaNextTrack,
-        "PREVTRACK" | "MEDIAPREV" | "MEDIAPREVTRACK" => Key::MediaPrevTrack,
-        "VOLUMEUP" | "VOLUP" => Key::VolumeUp,
-        "VOLUMEDOWN" | "VOLDOWN" => Key::VolumeDown,
-        "MUTE" | "VOLUMEMUTE" => Key::VolumeMute,
+        "OPTION" | "OPT" => Key::Alt,
 
         _ => return Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
     };
     Ok(key)
 }
 
-/// Fallback key parser for unsupported platforms
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
-    let trimmed = label.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::Hotkey("触发按键不能为空".into()));
-    }
-    let upper = trimmed.to_uppercase();
+/// 模拟按键点击 (按下 + 释放)
+pub fn simulate_key_click(key: Key) -> AppResult<()> {
+    // 按下
+    simulate(&EventType::KeyPress(key))
+        .map_err(|e| AppError::Hotkey(format!("发送按键按下失败: {:?}", e)))?;
 
-    if upper.len() == 1 {
-        if let Some(ch) = upper.chars().next() {
-            return Ok(Key::Unicode(ch));
-        }
-    }
+    // 短暂延迟
+    thread::sleep(Duration::from_millis(10));
 
-    match upper.as_str() {
-        "SPACE" => Ok(Key::Space),
-        "ENTER" => Ok(Key::Return),
-        "TAB" => Ok(Key::Tab),
-        "ESC" | "ESCAPE" => Ok(Key::Escape),
-        _ => Err(AppError::Hotkey("热键功能仅支持 Windows 或 macOS".into())),
-    }
-}
+    // 释放
+    simulate(&EventType::KeyRelease(key))
+        .map_err(|e| AppError::Hotkey(format!("发送按键释放失败: {:?}", e)))?;
 
-/// Send a key press on Windows
-#[cfg(target_os = "windows")]
-pub fn send_key_windows(enigo: &mut Enigo, key: Key) -> AppResult<()> {
-    enigo
-        .key(key, Direction::Click)
-        .map_err(|e| AppError::Hotkey(format!("发送按键失败: {e}")))?;
     Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
-#[allow(dead_code)]
-pub fn send_key_windows(_enigo: &mut Enigo, _key: Key) -> AppResult<()> {
-    Err(AppError::Hotkey("此功能仅支持 Windows".into()))
-}
-
-/// Send a key press on macOS (must run on main thread)
-#[cfg(target_os = "macos")]
-pub fn send_key_macos(app: &AppHandle, key: Key) -> AppResult<()> {
-    let (tx, rx) = mpsc::channel::<Result<(), String>>();
-    let key_to_send = key;
-
-    app.run_on_main_thread(move || {
-        let result = Enigo::new(&Settings::default())
-            .map_err(|e| format!("创建 Enigo 实例失败: {e}"))
-            .and_then(|mut enigo| {
-                enigo
-                    .key(key_to_send, Direction::Click)
-                    .map_err(|e| format!("发送按键失败: {e}"))
-            });
-        let _ = tx.send(result);
-    })
-    .map_err(|e| AppError::Hotkey(format!("调度到主线程失败: {e}")))?;
-
-    rx.recv()
-        .map_err(|_| AppError::Hotkey("等待主线程执行结果超时".into()))?
-        .map_err(AppError::Hotkey)
-}
-
-#[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
-pub fn send_key_macos(_app: &tauri::AppHandle, _key: Key) -> AppResult<()> {
-    Err(AppError::Hotkey("此功能仅支持 macOS".into()))
-}
-
 /// Sleep with interrupt capability
-#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 pub fn sleep_with_interrupt(flag: &Arc<AtomicBool>, total_ms: u64) {
     let mut remaining = if total_ms == 0 { 1 } else { total_ms };
     while remaining > 0 && !flag.load(Ordering::SeqCst) {
