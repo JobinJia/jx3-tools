@@ -65,7 +65,7 @@ function formatTime(timestamp: number) {
             收藏于 {{ formatTime(template.createdAt) }}
           </n-text>
         </div>
-        <n-popconfirm @positive-click.stop="deleteTemplate(template.id)">
+        <n-popconfirm positive-text="确定" negative-text="取消" @positive-click.stop="deleteTemplate(template.id)">
           <template #trigger>
             <n-button size="tiny" quaternary circle @click.stop>
               <template #icon>

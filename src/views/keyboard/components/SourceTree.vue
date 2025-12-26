@@ -247,6 +247,7 @@ watch(pattern, () => {
       <NTree
         :key="treeKey"
         class="compact-tree"
+        :indent="10"
         :pattern="pattern"
         show-line
         :override-default-node-click-behavior="override"
@@ -284,6 +285,10 @@ watch(pattern, () => {
 </template>
 
 <style scoped>
+:global(.m-model-close-btn) {
+  left: 93% !important;
+}
+
 .compact-tree :deep(.n-tree-node) {
   padding: 2px 0;
 }
