@@ -45,6 +45,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let state = match AppState::initialize(&app.handle()) {
                 Ok(state) => state,

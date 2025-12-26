@@ -12,7 +12,6 @@ mod types;
 pub mod window;
 
 pub use config::CONFIG_FILE_NAME;
-pub use shortcuts::GlobalListener;
 pub use types::{HotkeyConfig, HotkeyStatus};
 
 use std::path::PathBuf;
@@ -37,7 +36,6 @@ pub const HOTKEY_STATUS_EVENT: &str = "hotkey://status";
 pub struct HotkeyService {
     config_path: PathBuf,
     inner: Mutex<HotkeyInner>,
-    listener: Mutex<GlobalListener>,
 }
 
 impl HotkeyService {
@@ -48,7 +46,6 @@ impl HotkeyService {
         Ok(Self {
             config_path,
             inner: Mutex::new(HotkeyInner::default()),
-            listener: Mutex::new(GlobalListener::new()),
         })
     }
 
@@ -64,7 +61,7 @@ impl HotkeyService {
             guard.status.last_error = None;
         }
 
-        // 启动全局热键监听
+        // 注册全局热键
         match shortcuts::register_shortcuts(self, app) {
             Ok(_) => self.update_status(app, |status| {
                 status.registered = true;
@@ -80,19 +77,6 @@ impl HotkeyService {
         }
 
         Ok(())
-    }
-
-    /// Start the global listener
-    pub fn start_listener(
-        &self,
-        start_key: Key,
-        stop_key: Key,
-        service: Arc<HotkeyService>,
-        app: AppHandle,
-    ) {
-        if let Ok(mut listener) = self.listener.lock() {
-            listener.start(start_key, stop_key, service, app);
-        }
     }
 
     /// Get the current config

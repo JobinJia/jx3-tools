@@ -344,7 +344,7 @@ onUnmounted(() => {
             </n-space>
           </n-form-item>
         </n-form>
-        <n-alert v-if="status.lastError" type="warning" title="执行失败" class="mt-3" :bordered="false">
+        <n-alert v-if="status.lastError" type="error" title="错误" class="mt-3" :bordered="false">
           {{ status.lastError }}
         </n-alert>
         <n-alert v-if="isWindowMode && isWindows" type="warning" class="mt-3" :bordered="false">

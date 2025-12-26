@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
 
+use tauri_plugin_global_shortcut::Shortcut;
+
 use crate::error::{AppError, AppResult};
-use super::shortcuts::parse_hotkey;
 use super::types::{HotkeyConfig, KeyMode};
 
 pub const CONFIG_FILE_NAME: &str = "hotkey_config.json";
@@ -51,10 +52,11 @@ pub fn validate_config(config: &HotkeyConfig) -> AppResult<()> {
         return Err(AppError::Hotkey("开始与结束热键不能相同".into()));
     }
 
-    parse_hotkey(&config.start_hotkey)
-        .map_err(|_| AppError::Hotkey("开始热键格式无效".into()))?;
-    parse_hotkey(&config.stop_hotkey)
-        .map_err(|_| AppError::Hotkey("结束热键格式无效".into()))?;
+    // 使用 tauri-plugin-global-shortcut 的解析来验证热键格式
+    config.start_hotkey.parse::<Shortcut>()
+        .map_err(|e| AppError::Hotkey(format!("开始热键格式无效: {}", e)))?;
+    config.stop_hotkey.parse::<Shortcut>()
+        .map_err(|e| AppError::Hotkey(format!("结束热键格式无效: {}", e)))?;
 
     // 窗口模式验证
     if config.key_mode == KeyMode::Window {
