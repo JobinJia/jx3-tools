@@ -67,6 +67,7 @@ pub fn run() {
             // Keyboard commands
             list_directory_contents,
             cp_source_to_target,
+            open_folder,
             // Hotkey commands
             get_hotkey_config,
             get_hotkey_status,

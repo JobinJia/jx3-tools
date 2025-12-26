@@ -20,3 +20,13 @@ export interface UserSelect {
   target: string
   targetPath: string
 }
+
+/** 常用键位模板 */
+export interface KeyboardTemplate {
+  id: string
+  name: string
+  description: string
+  sourcePath: string
+  characterName: string
+  createdAt: number
+}

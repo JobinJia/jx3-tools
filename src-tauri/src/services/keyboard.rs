@@ -71,25 +71,16 @@ impl KeyboardService {
             return Err(AppError::Keyboard("不支持复制符号链接目录".into()));
         }
 
-        // Remove existing target directory if it exists
+        // Always remove existing target directory first to ensure clean copy
         if target.exists() {
-            log::debug!("目标目录已存在，正在删除: {}", target.display());
+            log::debug!("清空目标目录: {}", target.display());
             fs::remove_dir_all(&target).map_err(|e| {
                 AppError::Keyboard(format!(
-                    "无法删除目标目录 {}，可能有文件被占用或权限不足: {}",
+                    "无法清空目标目录，请手动删除后重试: {}\n错误: {}",
                     target.display(),
                     e
                 ))
             })?;
-            log::debug!("目标目录删除成功");
-        }
-
-        // Verify target is actually removed
-        if target.exists() {
-            return Err(AppError::Keyboard(format!(
-                "删除目标目录失败，目录仍然存在: {}",
-                target.display()
-            )));
         }
 
         // Create target directory

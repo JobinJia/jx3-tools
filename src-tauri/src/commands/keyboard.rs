@@ -1,5 +1,6 @@
 //! Keyboard configuration commands
 
+use std::process::Command;
 use tauri::command;
 
 use crate::error::{validate_path_not_empty, AppResult};
@@ -24,4 +25,28 @@ pub fn cp_source_to_target(params: CopyParams) -> AppResult<bool> {
     validate_path_not_empty(&params.source_path, "source_path")?;
     validate_path_not_empty(&params.target_path, "target_path")?;
     KeyboardService::copy_source_to_target(&params)
+}
+
+/// Open folder in system file explorer
+#[command]
+pub fn open_folder(path: &str) -> AppResult<()> {
+    log::debug!("Command: open_folder({})", path);
+    validate_path_not_empty(path, "path")?;
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer").arg(path).spawn().ok();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open").arg(path).spawn().ok();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open").arg(path).spawn().ok();
+    }
+
+    Ok(())
 }
