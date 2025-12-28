@@ -3,31 +3,38 @@
 //! This module provides functionality for:
 //! - Registering global hotkeys for start/stop
 //! - Running automated key sequences
-//! - Platform-specific key sending (Windows/macOS)
+//! - Windows SendInput for key simulation
 
 mod config;
+#[cfg(target_os = "windows")]
 mod keys;
 mod shortcuts;
 mod types;
+#[cfg(target_os = "windows")]
 pub mod window;
 
 pub use config::CONFIG_FILE_NAME;
 pub use types::{HotkeyConfig, HotkeyStatus};
 
 use std::path::PathBuf;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
-use std::thread;
+use std::sync::{Arc, Mutex};
 
-use rdev::Key;
 use tauri::{AppHandle, Emitter};
 
 use crate::error::{AppError, AppResult};
-use config::{ensure_app_config_dir, load_config, save_config, validate_config, validate_runtime_config};
-use keys::{parse_trigger_key, simulate_key_click, sleep_with_interrupt};
-use types::{HotkeyInner, Runner};
+use config::{ensure_app_config_dir, load_config, save_config, validate_config};
+use types::HotkeyInner;
+
+#[cfg(target_os = "windows")]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "windows")]
+use std::thread;
+#[cfg(target_os = "windows")]
+use config::validate_runtime_config;
+#[cfg(target_os = "windows")]
+use keys::{parse_to_virtual_key, simulate_key_click, sleep_with_interrupt};
+#[cfg(target_os = "windows")]
+use types::Runner;
 
 /// Event name for hotkey status updates
 pub const HOTKEY_STATUS_EVENT: &str = "hotkey://status";
@@ -170,8 +177,9 @@ impl HotkeyService {
     }
 
     /// Start the automation runner
+    #[cfg(target_os = "windows")]
     pub fn start_runner(self: &Arc<Self>, app: &AppHandle) -> AppResult<()> {
-        let (config, key) = {
+        let (config, vk) = {
             let mut guard = self
                 .inner
                 .lock()
@@ -181,14 +189,13 @@ impl HotkeyService {
             }
 
             validate_runtime_config(&guard.config)?;
-            let key = parse_trigger_key(&guard.config.trigger_key)?;
+            let vk = parse_to_virtual_key(&guard.config.trigger_key)?;
             guard.status.running = true;
             guard.status.last_error = None;
-            (guard.config.clone(), key)
+            (guard.config.clone(), vk)
         };
 
         // 窗口模式额外验证
-        #[cfg(target_os = "windows")]
         let (key_mode, target_hwnd) = {
             let mode = config.key_mode.clone();
             let hwnd = if mode == types::KeyMode::Window {
@@ -212,23 +219,14 @@ impl HotkeyService {
         let service = Arc::clone(self);
         let app_handle = app.clone();
 
-        #[cfg(target_os = "windows")]
         let handle = thread::spawn(move || {
             run_key_loop(
                 &stop_clone,
-                &service,
-                &app_handle,
-                key,
+                vk,
                 config.interval_ms,
                 key_mode,
                 target_hwnd,
             );
-            service.finish_running(&app_handle);
-        });
-
-        #[cfg(not(target_os = "windows"))]
-        let handle = thread::spawn(move || {
-            run_key_loop(&stop_clone, key, config.interval_ms);
             service.finish_running(&app_handle);
         });
 
@@ -242,7 +240,14 @@ impl HotkeyService {
         Ok(())
     }
 
+    /// Start the automation runner (non-Windows - not supported)
+    #[cfg(not(target_os = "windows"))]
+    pub fn start_runner(self: &Arc<Self>, _app: &AppHandle) -> AppResult<()> {
+        Err(AppError::Hotkey("按键模拟仅支持 Windows 平台".into()))
+    }
+
     /// Mark runner as finished
+    #[cfg(target_os = "windows")]
     fn finish_running(&self, app: &AppHandle) {
         if let Ok(mut guard) = self.inner.lock() {
             guard.status.running = false;
@@ -276,39 +281,27 @@ impl HotkeyService {
 #[cfg(target_os = "windows")]
 fn run_key_loop(
     stop_flag: &Arc<AtomicBool>,
-    service: &Arc<HotkeyService>,
-    _app_handle: &AppHandle,
-    key: Key,
+    vk: u16,
     interval_ms: u64,
     key_mode: types::KeyMode,
     target_hwnd: Option<u64>,
 ) {
     match key_mode {
         types::KeyMode::Global => {
-            // 全局模式：使用 rdev simulate
+            // 全局模式：使用 SendInput API
             while !stop_flag.load(Ordering::SeqCst) {
-                if let Err(err) = simulate_key_click(key) {
+                if let Err(err) = simulate_key_click(vk) {
                     log::error!("热键触发失败: {}", err);
                 }
                 sleep_with_interrupt(stop_flag, interval_ms);
             }
         }
         types::KeyMode::Window => {
-            // 窗口模式：使用 Windows API
+            // 窗口模式：使用 Windows PostMessage API
             let hwnd = match target_hwnd {
                 Some(h) => h,
                 None => {
                     log::error!("窗口模式未指定目标窗口");
-                    return;
-                }
-            };
-
-            // 解析为 Virtual Key Code
-            let config = service.get_config();
-            let vk = match keys::parse_to_virtual_key(&config.trigger_key) {
-                Ok(v) => v,
-                Err(err) => {
-                    log::error!("解析按键失败: {}", err);
                     return;
                 }
             };
@@ -322,16 +315,5 @@ fn run_key_loop(
                 sleep_with_interrupt(stop_flag, interval_ms);
             }
         }
-    }
-}
-
-/// Run the key sending loop (non-Windows version - global mode only)
-#[cfg(not(target_os = "windows"))]
-fn run_key_loop(stop_flag: &Arc<AtomicBool>, key: Key, interval_ms: u64) {
-    while !stop_flag.load(Ordering::SeqCst) {
-        if let Err(err) = simulate_key_click(key) {
-            log::error!("热键触发失败: {}", err);
-        }
-        sleep_with_interrupt(stop_flag, interval_ms);
     }
 }

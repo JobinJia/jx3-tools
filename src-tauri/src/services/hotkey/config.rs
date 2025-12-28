@@ -73,7 +73,7 @@ pub fn validate_config(config: &HotkeyConfig) -> AppResult<()> {
 }
 
 /// Validate config at runtime (before starting runner)
-#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
+#[cfg(target_os = "windows")]
 pub fn validate_runtime_config(config: &HotkeyConfig) -> AppResult<()> {
     if config.trigger_key.trim().is_empty() {
         return Err(AppError::Hotkey("触发按键未设置".into()));

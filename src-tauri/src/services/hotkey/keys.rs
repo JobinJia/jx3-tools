@@ -1,3 +1,9 @@
+//! 按键模拟模块 - 使用 Windows SendInput API
+//!
+//! 使用 SendInput 替代 rdev，提供更可靠的按键模拟
+
+#![cfg(target_os = "windows")]
+
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -5,12 +11,9 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use rdev::{EventType, Key, simulate};
-
 use crate::error::{AppError, AppResult};
 
-/// 将按键名称解析为 Windows Virtual Key Code (用于窗口模式)
-#[cfg(target_os = "windows")]
+/// 将按键名称解析为 Windows Virtual Key Code
 pub fn parse_to_virtual_key(label: &str) -> AppResult<u16> {
     let trimmed = label.trim();
     if trimmed.is_empty() {
@@ -88,9 +91,12 @@ pub fn parse_to_virtual_key(label: &str) -> AppResult<u16> {
         "END" => 0x23,
         "PAGEUP" => 0x21,
         "PAGEDOWN" => 0x22,
+        "INSERT" => 0x2D,
 
         // 锁定键
         "CAPSLOCK" | "CAPS" => 0x14,
+        "NUMLOCK" => 0x90,
+        "SCROLLLOCK" => 0x91,
 
         // 修饰键
         "ALT" => 0x12,
@@ -108,159 +114,64 @@ pub fn parse_to_virtual_key(label: &str) -> AppResult<u16> {
     Ok(vk)
 }
 
-/// 将按键名称解析为 rdev Key
-pub fn parse_trigger_key(label: &str) -> AppResult<Key> {
-    let trimmed = label.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::Hotkey("触发按键不能为空".into()));
-    }
-    let upper = trimmed.to_uppercase();
-
-    // 单字符按键
-    if upper.len() == 1 {
-        let ch = upper.chars().next().unwrap();
-        // 字母 A-Z
-        if ch.is_ascii_uppercase() {
-            return match ch {
-                'A' => Ok(Key::KeyA),
-                'B' => Ok(Key::KeyB),
-                'C' => Ok(Key::KeyC),
-                'D' => Ok(Key::KeyD),
-                'E' => Ok(Key::KeyE),
-                'F' => Ok(Key::KeyF),
-                'G' => Ok(Key::KeyG),
-                'H' => Ok(Key::KeyH),
-                'I' => Ok(Key::KeyI),
-                'J' => Ok(Key::KeyJ),
-                'K' => Ok(Key::KeyK),
-                'L' => Ok(Key::KeyL),
-                'M' => Ok(Key::KeyM),
-                'N' => Ok(Key::KeyN),
-                'O' => Ok(Key::KeyO),
-                'P' => Ok(Key::KeyP),
-                'Q' => Ok(Key::KeyQ),
-                'R' => Ok(Key::KeyR),
-                'S' => Ok(Key::KeyS),
-                'T' => Ok(Key::KeyT),
-                'U' => Ok(Key::KeyU),
-                'V' => Ok(Key::KeyV),
-                'W' => Ok(Key::KeyW),
-                'X' => Ok(Key::KeyX),
-                'Y' => Ok(Key::KeyY),
-                'Z' => Ok(Key::KeyZ),
-                _ => Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
-            };
-        }
-        // 数字 0-9
-        if ch.is_ascii_digit() {
-            return match ch {
-                '0' => Ok(Key::Num0),
-                '1' => Ok(Key::Num1),
-                '2' => Ok(Key::Num2),
-                '3' => Ok(Key::Num3),
-                '4' => Ok(Key::Num4),
-                '5' => Ok(Key::Num5),
-                '6' => Ok(Key::Num6),
-                '7' => Ok(Key::Num7),
-                '8' => Ok(Key::Num8),
-                '9' => Ok(Key::Num9),
-                _ => Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
-            };
-        }
-    }
-
-    let key = match upper.as_str() {
-        // 控制键
-        "SPACE" => Key::Space,
-        "ENTER" | "RETURN" => Key::Return,
-        "TAB" => Key::Tab,
-        "ESC" | "ESCAPE" => Key::Escape,
-        "BACKSPACE" => Key::Backspace,
-        "DELETE" | "DEL" => Key::Delete,
-
-        // 方向键
-        "UP" | "ARROWUP" => Key::UpArrow,
-        "DOWN" | "ARROWDOWN" => Key::DownArrow,
-        "LEFT" | "ARROWLEFT" => Key::LeftArrow,
-        "RIGHT" | "ARROWRIGHT" => Key::RightArrow,
-
-        // 功能键 F1-F12
-        "F1" => Key::F1,
-        "F2" => Key::F2,
-        "F3" => Key::F3,
-        "F4" => Key::F4,
-        "F5" => Key::F5,
-        "F6" => Key::F6,
-        "F7" => Key::F7,
-        "F8" => Key::F8,
-        "F9" => Key::F9,
-        "F10" => Key::F10,
-        "F11" => Key::F11,
-        "F12" => Key::F12,
-
-        // 导航键
-        "HOME" => Key::Home,
-        "END" => Key::End,
-        "PAGEUP" => Key::PageUp,
-        "PAGEDOWN" => Key::PageDown,
-        "INSERT" => Key::Insert,
-
-        // 小键盘数字键
-        "NUM0" | "NUMPAD0" => Key::Kp0,
-        "NUM1" | "NUMPAD1" => Key::Kp1,
-        "NUM2" | "NUMPAD2" => Key::Kp2,
-        "NUM3" | "NUMPAD3" => Key::Kp3,
-        "NUM4" | "NUMPAD4" => Key::Kp4,
-        "NUM5" | "NUMPAD5" => Key::Kp5,
-        "NUM6" | "NUMPAD6" => Key::Kp6,
-        "NUM7" | "NUMPAD7" => Key::Kp7,
-        "NUM8" | "NUMPAD8" => Key::Kp8,
-        "NUM9" | "NUMPAD9" => Key::Kp9,
-
-        // 小键盘运算符
-        "NUMADD" | "NUMPLUS" => Key::KpPlus,
-        "NUMSUB" | "NUMMINUS" => Key::KpMinus,
-        "NUMMUL" | "NUMSTAR" | "NUMMULTIPLY" => Key::KpMultiply,
-        "NUMDIV" | "NUMSLASH" | "NUMDIVIDE" => Key::KpDivide,
-        // 小键盘小数点 - rdev 没有专门的 KpDecimal，使用 Delete 作为替代
-        "NUMDOT" | "NUMDECIMAL" => Key::Delete,
-
-        // 锁定键
-        "CAPSLOCK" | "CAPS" => Key::CapsLock,
-        "NUMLOCK" => Key::NumLock,
-        "SCROLLLOCK" => Key::ScrollLock,
-
-        // 修饰键
-        "ALT" => Key::Alt,
-        "CTRL" | "CONTROL" => Key::ControlLeft,
-        "SHIFT" => Key::ShiftLeft,
-        "LSHIFT" | "LEFTSHIFT" => Key::ShiftLeft,
-        "RSHIFT" | "RIGHTSHIFT" => Key::ShiftRight,
-        "LCTRL" | "LCONTROL" | "LEFTCTRL" => Key::ControlLeft,
-        "RCTRL" | "RCONTROL" | "RIGHTCTRL" => Key::ControlRight,
-        "WIN" | "META" | "SUPER" | "WINDOWS" => Key::MetaLeft,
-        #[cfg(target_os = "macos")]
-        "CMD" | "COMMAND" => Key::MetaLeft,
-        #[cfg(target_os = "macos")]
-        "OPTION" | "OPT" => Key::Alt,
-
-        _ => return Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
+/// 使用 SendInput API 模拟按键点击 (按下 + 释放)
+pub fn simulate_key_click(vk: u16) -> AppResult<()> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+        VIRTUAL_KEY,
     };
-    Ok(key)
-}
 
-/// 模拟按键点击 (按下 + 释放)
-pub fn simulate_key_click(key: Key) -> AppResult<()> {
-    // 按下
-    simulate(&EventType::KeyPress(key))
-        .map_err(|e| AppError::Hotkey(format!("发送按键按下失败: {:?}", e)))?;
+    let scan_code = unsafe {
+        windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
+            vk as u32,
+            windows::Win32::UI::Input::KeyboardAndMouse::MAPVK_VK_TO_VSC,
+        ) as u16
+    };
 
-    // 短暂延迟
-    thread::sleep(Duration::from_millis(10));
+    // 构造按键按下事件
+    let key_down = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: scan_code,
+                dwFlags: KEYBD_EVENT_FLAGS(0),
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
 
-    // 释放
-    simulate(&EventType::KeyRelease(key))
-        .map_err(|e| AppError::Hotkey(format!("发送按键释放失败: {:?}", e)))?;
+    // 构造按键释放事件
+    let key_up = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: scan_code,
+                dwFlags: KEYEVENTF_KEYUP,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+
+    unsafe {
+        // 发送按键按下
+        let sent = SendInput(&[key_down], std::mem::size_of::<INPUT>() as i32);
+        if sent == 0 {
+            return Err(AppError::Hotkey("发送按键按下失败".into()));
+        }
+
+        // 短暂延迟
+        thread::sleep(Duration::from_millis(10));
+
+        // 发送按键释放
+        let sent = SendInput(&[key_up], std::mem::size_of::<INPUT>() as i32);
+        if sent == 0 {
+            return Err(AppError::Hotkey("发送按键释放失败".into()));
+        }
+    }
 
     Ok(())
 }

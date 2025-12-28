@@ -4,8 +4,10 @@ use tauri::{command, AppHandle};
 
 use crate::app_state::AppState;
 use crate::error::AppResult;
-use crate::services::hotkey::window::WindowInfo;
 use crate::services::hotkey::{HotkeyConfig, HotkeyStatus};
+
+#[cfg(target_os = "windows")]
+use crate::services::hotkey::window::WindowInfo;
 
 /// Get the current hotkey configuration
 #[command]
@@ -40,15 +42,31 @@ pub fn stop_hotkey_task(app: AppHandle, state: tauri::State<AppState>) {
 }
 
 /// 获取可见窗口列表（仅 Windows）
+#[cfg(target_os = "windows")]
 #[command]
 pub fn list_windows(filter: Option<String>) -> AppResult<Vec<WindowInfo>> {
     log::debug!("Command: list_windows(filter={:?})", filter);
     crate::services::hotkey::window::enumerate_windows(filter.as_deref())
 }
 
+/// 获取可见窗口列表（非 Windows 平台）
+#[cfg(not(target_os = "windows"))]
+#[command]
+pub fn list_windows(_filter: Option<String>) -> AppResult<Vec<()>> {
+    Ok(vec![])
+}
+
 /// 检查窗口是否仍然有效
+#[cfg(target_os = "windows")]
 #[command]
 pub fn check_window_valid(hwnd: u64) -> bool {
     log::debug!("Command: check_window_valid(hwnd={})", hwnd);
     crate::services::hotkey::window::is_window_valid(hwnd)
+}
+
+/// 检查窗口是否仍然有效（非 Windows 平台）
+#[cfg(not(target_os = "windows"))]
+#[command]
+pub fn check_window_valid(_hwnd: u64) -> bool {
+    false
 }
