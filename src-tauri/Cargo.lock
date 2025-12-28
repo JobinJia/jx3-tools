@@ -1905,6 +1905,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-log",
+ "tauri-winres",
  "thiserror 2.0.16",
  "windows 0.58.0",
 ]
