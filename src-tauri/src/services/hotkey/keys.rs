@@ -115,12 +115,14 @@ pub fn parse_to_virtual_key(label: &str) -> AppResult<u16> {
 }
 
 /// 使用 SendInput API 模拟按键点击 (按下 + 释放)
+/// 使用扫描码模式 (KEYEVENTF_SCANCODE)，更接近硬件输入
 pub fn simulate_key_click(vk: u16) -> AppResult<()> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-        VIRTUAL_KEY,
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+        KEYEVENTF_SCANCODE, VIRTUAL_KEY,
     };
 
+    // 将虚拟键码转换为扫描码
     let scan_code = unsafe {
         windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
             vk as u32,
@@ -128,28 +130,32 @@ pub fn simulate_key_click(vk: u16) -> AppResult<()> {
         ) as u16
     };
 
-    // 构造按键按下事件
+    if scan_code == 0 {
+        return Err(AppError::Hotkey(format!("无法获取扫描码: VK={:#04x}", vk)));
+    }
+
+    // 构造按键按下事件 - 使用纯扫描码模式
     let key_down = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(vk),
+                wVk: VIRTUAL_KEY(0), // 扫描码模式下设为 0
                 wScan: scan_code,
-                dwFlags: KEYBD_EVENT_FLAGS(0),
+                dwFlags: KEYEVENTF_SCANCODE,
                 time: 0,
                 dwExtraInfo: 0,
             },
         },
     };
 
-    // 构造按键释放事件
+    // 构造按键释放事件 - 使用纯扫描码模式
     let key_up = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(vk),
+                wVk: VIRTUAL_KEY(0), // 扫描码模式下设为 0
                 wScan: scan_code,
-                dwFlags: KEYEVENTF_KEYUP,
+                dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
                 time: 0,
                 dwExtraInfo: 0,
             },
