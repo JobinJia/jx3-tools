@@ -2,8 +2,6 @@
 
 use serde::Serialize;
 
-use crate::error::{AppError, AppResult};
-
 /// 窗口信息（用于前端显示）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

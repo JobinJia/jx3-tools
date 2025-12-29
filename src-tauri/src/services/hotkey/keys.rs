@@ -64,16 +64,19 @@ fn init_sender() -> AppResult<SenderContext> {
 
 /// 使用 Interception 驱动模拟按键点击
 fn send_key_interception(ctx: &SenderContext, scan_code: u16) -> AppResult<()> {
+    let code = ScanCode::try_from(scan_code)
+        .map_err(|_| AppError::Hotkey(format!("无效的扫描码: {:#04x}", scan_code)))?;
+
     // 构造按键按下事件
     let key_down = Stroke::Keyboard {
-        code: ScanCode::from(scan_code),
+        code,
         state: KeyState::empty(),
         information: 0,
     };
 
     // 构造按键释放事件
     let key_up = Stroke::Keyboard {
-        code: ScanCode::from(scan_code),
+        code,
         state: KeyState::UP,
         information: 0,
     };

@@ -91,7 +91,7 @@ where
     })?;
 
     // Set filter for all keyboards
-    ctx.set_filter(interception::is_keyboard, interception::KeyFilter::all().into());
+    ctx.set_filter(interception::is_keyboard, interception::KeyFilter::all());
 
     log::info!(
         "Hotkey listener started: start={:#04x}, stop={:#04x}",
@@ -122,7 +122,7 @@ where
 
         // Process keyboard strokes
         if let Stroke::Keyboard { code, state, .. } = strokes[0] {
-            let scancode: u16 = code.into();
+            let scancode: u16 = code as u16;
             let is_keydown = !state.contains(KeyState::UP);
 
             // Check for hotkeys (only on key down)
