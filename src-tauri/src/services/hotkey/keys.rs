@@ -1,145 +1,113 @@
-//! 按键模拟模块 - 使用 Windows SendInput API
+//! 按键模拟模块 - 使用 Interception 驱动发送按键
 //!
-//! 使用 SendInput 替代 rdev，提供更可靠的按键模拟
+//! 使用 Interception 驱动级方案，提供更好的游戏兼容性
+//! 若驱动未安装，自动回退到 SendInput 扫描码模式
 
 #![cfg(target_os = "windows")]
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, OnceLock,
 };
 use std::thread;
 use std::time::Duration;
 
+use interception::{Interception, KeyState, ScanCode, Stroke};
+
 use crate::error::{AppError, AppResult};
 
-/// 将按键名称解析为 Windows Virtual Key Code
-pub fn parse_to_virtual_key(label: &str) -> AppResult<u16> {
-    let trimmed = label.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::Hotkey("触发按键不能为空".into()));
-    }
-    let upper = trimmed.to_uppercase();
+/// 全局 Interception 发送上下文（延迟初始化）
+static SENDER_CTX: OnceLock<Option<SenderContext>> = OnceLock::new();
 
-    // 单字符按键 A-Z, 0-9
-    if upper.len() == 1 {
-        let ch = upper.chars().next().unwrap();
-        if ch.is_ascii_uppercase() {
-            return Ok(ch as u16); // VK_A = 0x41, etc.
-        }
-        if ch.is_ascii_digit() {
-            return Ok(ch as u16); // VK_0 = 0x30, etc.
-        }
-    }
-
-    // 特殊按键映射
-    let vk = match upper.as_str() {
-        "SPACE" => 0x20,            // VK_SPACE
-        "ENTER" | "RETURN" => 0x0D, // VK_RETURN
-        "TAB" => 0x09,              // VK_TAB
-        "ESC" | "ESCAPE" => 0x1B,   // VK_ESCAPE
-        "BACKSPACE" => 0x08,        // VK_BACK
-        "DELETE" | "DEL" => 0x2E,   // VK_DELETE
-
-        // 方向键
-        "UP" | "ARROWUP" => 0x26,
-        "DOWN" | "ARROWDOWN" => 0x28,
-        "LEFT" | "ARROWLEFT" => 0x25,
-        "RIGHT" | "ARROWRIGHT" => 0x27,
-
-        // 功能键 F1-F20
-        "F1" => 0x70,
-        "F2" => 0x71,
-        "F3" => 0x72,
-        "F4" => 0x73,
-        "F5" => 0x74,
-        "F6" => 0x75,
-        "F7" => 0x76,
-        "F8" => 0x77,
-        "F9" => 0x78,
-        "F10" => 0x79,
-        "F11" => 0x7A,
-        "F12" => 0x7B,
-        "F13" => 0x7C,
-        "F14" => 0x7D,
-        "F15" => 0x7E,
-        "F16" => 0x7F,
-        "F17" => 0x80,
-        "F18" => 0x81,
-        "F19" => 0x82,
-        "F20" => 0x83,
-
-        // 小键盘
-        "NUM0" | "NUMPAD0" => 0x60,
-        "NUM1" | "NUMPAD1" => 0x61,
-        "NUM2" | "NUMPAD2" => 0x62,
-        "NUM3" | "NUMPAD3" => 0x63,
-        "NUM4" | "NUMPAD4" => 0x64,
-        "NUM5" | "NUMPAD5" => 0x65,
-        "NUM6" | "NUMPAD6" => 0x66,
-        "NUM7" | "NUMPAD7" => 0x67,
-        "NUM8" | "NUMPAD8" => 0x68,
-        "NUM9" | "NUMPAD9" => 0x69,
-        "NUMADD" | "NUMPLUS" => 0x6B,
-        "NUMSUB" | "NUMMINUS" => 0x6D,
-        "NUMMUL" | "NUMSTAR" | "NUMMULTIPLY" => 0x6A,
-        "NUMDIV" | "NUMSLASH" | "NUMDIVIDE" => 0x6F,
-        "NUMDOT" | "NUMDECIMAL" => 0x6E,
-
-        // 导航键
-        "HOME" => 0x24,
-        "END" => 0x23,
-        "PAGEUP" => 0x21,
-        "PAGEDOWN" => 0x22,
-        "INSERT" => 0x2D,
-
-        // 锁定键
-        "CAPSLOCK" | "CAPS" => 0x14,
-        "NUMLOCK" => 0x90,
-        "SCROLLLOCK" => 0x91,
-
-        // 修饰键
-        "ALT" => 0x12,
-        "CTRL" | "CONTROL" => 0x11,
-        "SHIFT" => 0x10,
-        "LSHIFT" | "LEFTSHIFT" => 0xA0,
-        "RSHIFT" | "RIGHTSHIFT" => 0xA1,
-        "LCTRL" | "LCONTROL" | "LEFTCTRL" => 0xA2,
-        "RCTRL" | "RCONTROL" | "RIGHTCTRL" => 0xA3,
-        "WIN" | "META" | "SUPER" | "WINDOWS" => 0x5B,
-
-        _ => return Err(AppError::Hotkey(format!("暂不支持的触发按键: {trimmed}"))),
-    };
-
-    Ok(vk)
+/// Interception 发送上下文
+struct SenderContext {
+    ctx: Interception,
+    keyboard_device: interception::Device,
 }
 
-/// 使用 SendInput API 模拟按键点击 (按下 + 释放)
-/// 使用扫描码模式 (KEYEVENTF_SCANCODE)，更接近硬件输入
-pub fn simulate_key_click(vk: u16) -> AppResult<()> {
+// 手动实现 Send 和 Sync
+unsafe impl Send for SenderContext {}
+unsafe impl Sync for SenderContext {}
+
+/// 获取或初始化发送上下文
+fn get_sender_ctx() -> Option<&'static SenderContext> {
+    SENDER_CTX
+        .get_or_init(|| {
+            match init_sender() {
+                Ok(ctx) => {
+                    log::info!("Interception 发送器初始化成功");
+                    Some(ctx)
+                }
+                Err(e) => {
+                    log::warn!("Interception 发送器不可用: {}, 将使用 SendInput 回退", e);
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+/// 初始化 Interception 发送器
+fn init_sender() -> AppResult<SenderContext> {
+    let ctx = Interception::new().ok_or_else(|| {
+        AppError::Hotkey("无法创建 Interception 上下文".into())
+    })?;
+
+    // 键盘设备 ID 1
+    let keyboard_device: interception::Device = 1;
+
+    Ok(SenderContext {
+        ctx,
+        keyboard_device,
+    })
+}
+
+/// 使用 Interception 驱动模拟按键点击
+fn send_key_interception(ctx: &SenderContext, scan_code: u16) -> AppResult<()> {
+    // 构造按键按下事件
+    let key_down = Stroke::Keyboard {
+        code: ScanCode::from(scan_code),
+        state: KeyState::empty(),
+        information: 0,
+    };
+
+    // 构造按键释放事件
+    let key_up = Stroke::Keyboard {
+        code: ScanCode::from(scan_code),
+        state: KeyState::UP,
+        information: 0,
+    };
+
+    // 发送按键按下
+    let sent = ctx.ctx.send(ctx.keyboard_device, &[key_down]);
+    if sent == 0 {
+        return Err(AppError::Hotkey("Interception 发送按键按下失败".into()));
+    }
+
+    // 短暂延迟
+    thread::sleep(Duration::from_millis(10));
+
+    // 发送按键释放
+    let sent = ctx.ctx.send(ctx.keyboard_device, &[key_up]);
+    if sent == 0 {
+        return Err(AppError::Hotkey("Interception 发送按键释放失败".into()));
+    }
+
+    Ok(())
+}
+
+/// 使用 SendInput API 模拟按键点击 (回退方案)
+fn send_key_sendinput(scan_code: u16) -> AppResult<()> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
         KEYEVENTF_SCANCODE, VIRTUAL_KEY,
     };
 
-    // 将虚拟键码转换为扫描码
-    let scan_code = unsafe {
-        windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
-            vk as u32,
-            windows::Win32::UI::Input::KeyboardAndMouse::MAPVK_VK_TO_VSC,
-        ) as u16
-    };
-
-    if scan_code == 0 {
-        return Err(AppError::Hotkey(format!("无法获取扫描码: VK={:#04x}", vk)));
-    }
-
-    // 构造按键按下事件 - 使用纯扫描码模式
     let key_down = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(0), // 扫描码模式下设为 0
+                wVk: VIRTUAL_KEY(0),
                 wScan: scan_code,
                 dwFlags: KEYEVENTF_SCANCODE,
                 time: 0,
@@ -148,12 +116,11 @@ pub fn simulate_key_click(vk: u16) -> AppResult<()> {
         },
     };
 
-    // 构造按键释放事件 - 使用纯扫描码模式
     let key_up = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(0), // 扫描码模式下设为 0
+                wVk: VIRTUAL_KEY(0),
                 wScan: scan_code,
                 dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
                 time: 0,
@@ -163,23 +130,29 @@ pub fn simulate_key_click(vk: u16) -> AppResult<()> {
     };
 
     unsafe {
-        // 发送按键按下
         let sent = SendInput(&[key_down], std::mem::size_of::<INPUT>() as i32);
         if sent == 0 {
-            return Err(AppError::Hotkey("发送按键按下失败".into()));
+            return Err(AppError::Hotkey("SendInput 发送按键按下失败".into()));
         }
 
-        // 短暂延迟
         thread::sleep(Duration::from_millis(10));
 
-        // 发送按键释放
         let sent = SendInput(&[key_up], std::mem::size_of::<INPUT>() as i32);
         if sent == 0 {
-            return Err(AppError::Hotkey("发送按键释放失败".into()));
+            return Err(AppError::Hotkey("SendInput 发送按键释放失败".into()));
         }
     }
 
     Ok(())
+}
+
+/// 模拟按键点击 (按下 + 释放)
+/// 优先使用 Interception 驱动，失败时回退到 SendInput
+pub fn simulate_key_press(scan_code: u16) -> AppResult<()> {
+    if let Some(ctx) = get_sender_ctx() {
+        return send_key_interception(ctx, scan_code);
+    }
+    send_key_sendinput(scan_code)
 }
 
 /// Sleep with interrupt capability
@@ -190,4 +163,9 @@ pub fn sleep_with_interrupt(flag: &Arc<AtomicBool>, total_ms: u64) {
         thread::sleep(Duration::from_millis(step));
         remaining = remaining.saturating_sub(step);
     }
+}
+
+/// 检查 Interception 驱动是否可用
+pub fn is_interception_available() -> bool {
+    get_sender_ctx().is_some()
 }
