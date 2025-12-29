@@ -91,7 +91,10 @@ where
     })?;
 
     // Set filter for all keyboards
-    ctx.set_filter(interception::is_keyboard, interception::KeyFilter::all());
+    ctx.set_filter(
+        interception::is_keyboard,
+        interception::Filter::KeyFilter(interception::KeyFilter::all()),
+    );
 
     log::info!(
         "Hotkey listener started: start={:#04x}, stop={:#04x}",
