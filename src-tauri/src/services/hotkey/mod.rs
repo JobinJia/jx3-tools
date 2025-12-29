@@ -131,20 +131,29 @@ impl HotkeyService {
         let service = Arc::clone(self);
         let app_handle = app.clone();
 
+        // Use a separate thread for handling hotkey events to avoid blocking
+        // the listener thread and potential deadlocks
         let listener = HotkeyListener::new(listener_config, move |event| {
-            match event {
-                HotkeyEvent::Start => {
-                    if let Err(err) = service.start_runner(&app_handle) {
-                        log::error!("启动热键任务失败: {}", err);
-                        service.update_status(&app_handle, |status| {
-                            status.last_error = Some(err.to_string());
-                        });
+            let service_clone = Arc::clone(&service);
+            let app_clone = app_handle.clone();
+
+            // Spawn a new thread to handle the event asynchronously
+            // This prevents blocking the listener thread which could cause deadlocks
+            thread::spawn(move || {
+                match event {
+                    HotkeyEvent::Start => {
+                        if let Err(err) = service_clone.start_runner(&app_clone) {
+                            log::error!("启动热键任务失败: {}", err);
+                            service_clone.update_status(&app_clone, |status| {
+                                status.last_error = Some(err.to_string());
+                            });
+                        }
+                    }
+                    HotkeyEvent::Stop => {
+                        service_clone.stop_runner(&app_clone);
                     }
                 }
-                HotkeyEvent::Stop => {
-                    service.stop_runner(&app_handle);
-                }
-            }
+            });
         })?;
 
         let mut guard = self.listener.lock()
@@ -162,18 +171,24 @@ impl HotkeyService {
 
     /// Get the current config
     pub fn get_config(&self) -> HotkeyConfig {
-        self.inner
-            .lock()
-            .map(|inner| inner.config.clone())
-            .unwrap_or_default()
+        match self.inner.lock() {
+            Ok(inner) => inner.config.clone(),
+            Err(poisoned) => {
+                log::warn!("热键配置锁已损坏，使用损坏数据: {}", poisoned);
+                poisoned.into_inner().config.clone()
+            }
+        }
     }
 
     /// Get the current status
     pub fn get_status(&self) -> HotkeyStatus {
-        self.inner
-            .lock()
-            .map(|inner| inner.status.clone())
-            .unwrap_or_default()
+        match self.inner.lock() {
+            Ok(inner) => inner.status.clone(),
+            Err(poisoned) => {
+                log::warn!("热键状态锁已损坏，使用损坏数据: {}", poisoned);
+                poisoned.into_inner().status.clone()
+            }
+        }
     }
 
     /// Save a new config and re-register listener
@@ -252,12 +267,36 @@ impl HotkeyService {
     /// Start the automation runner
     #[cfg(target_os = "windows")]
     pub fn start_runner(self: &Arc<Self>, app: &AppHandle) -> AppResult<()> {
+        // First, stop any existing runner to prevent multiple runners
+        let existing_runner = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|e| AppError::Hotkey(format!("热键状态锁定失败: {e}")))?;
+
+            // Already running, skip
+            if guard.status.running && guard.runner.is_some() {
+                return Ok(());
+            }
+
+            // Take any existing runner for cleanup
+            guard.runner.take()
+        };
+
+        // Stop existing runner outside the lock to prevent blocking
+        if let Some(mut runner) = existing_runner {
+            runner.request_stop();
+            runner.join();
+        }
+
         let (config, trigger_scancode) = {
             let mut guard = self
                 .inner
                 .lock()
                 .map_err(|e| AppError::Hotkey(format!("热键状态锁定失败: {e}")))?;
-            if guard.status.running {
+
+            // Double-check after re-acquiring lock
+            if guard.status.running && guard.runner.is_some() {
                 return Ok(());
             }
 
@@ -331,10 +370,15 @@ impl HotkeyService {
 
     /// Emit current status to frontend
     fn emit_status(&self, app: &AppHandle) {
-        if let Ok(status) = self.inner.lock().map(|inner| inner.status.clone()) {
-            if let Err(err) = app.emit(HOTKEY_STATUS_EVENT, status) {
-                log::warn!("广播热键状态失败: {}", err);
+        let status = match self.inner.lock() {
+            Ok(inner) => inner.status.clone(),
+            Err(poisoned) => {
+                log::warn!("热键状态锁已损坏，使用损坏数据广播: {}", poisoned);
+                poisoned.into_inner().status.clone()
             }
+        };
+        if let Err(err) = app.emit(HOTKEY_STATUS_EVENT, status) {
+            log::warn!("广播热键状态失败: {}", err);
         }
     }
 

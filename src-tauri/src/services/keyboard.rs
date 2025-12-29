@@ -162,9 +162,16 @@ impl KeyboardService {
 
         for entry in fs::read_dir(src)? {
             let entry = entry?;
+            let file_type = entry.file_type()?;
             let new_dst = dst.join(entry.file_name());
 
-            if entry.file_type()?.is_dir() {
+            // Skip symlinks for security (prevent symlink-based path traversal)
+            if file_type.is_symlink() {
+                log::warn!("跳过符号链接: {}", entry.path().display());
+                continue;
+            }
+
+            if file_type.is_dir() {
                 Self::copy_dir_all(&entry.path(), &new_dst)?;
             } else {
                 fs::copy(entry.path(), &new_dst)?;

@@ -39,6 +39,9 @@ pub struct ListenerConfig {
     pub stop_scancode: u16,
 }
 
+/// Maximum time to wait for listener thread to join (in milliseconds)
+const LISTENER_JOIN_TIMEOUT_MS: u64 = 500;
+
 impl HotkeyListener {
     /// Create and start a new hotkey listener
     pub fn new<F>(config: ListenerConfig, callback: F) -> AppResult<Self>
@@ -60,13 +63,30 @@ impl HotkeyListener {
         })
     }
 
-    /// Stop the listener
+    /// Stop the listener with timeout to prevent freezing
     pub fn stop(&mut self) {
         self.stop_flag.store(true, Ordering::SeqCst);
         if let Some(handle) = self.handle.take() {
-            // Give the listener time to exit gracefully
-            thread::sleep(Duration::from_millis(100));
-            let _ = handle.join();
+            // Wait for thread to finish with timeout
+            let start = std::time::Instant::now();
+            let timeout = Duration::from_millis(LISTENER_JOIN_TIMEOUT_MS);
+
+            while !handle.is_finished() {
+                if start.elapsed() >= timeout {
+                    log::warn!(
+                        "Listener 线程在 {}ms 内未能退出，放弃等待",
+                        LISTENER_JOIN_TIMEOUT_MS
+                    );
+                    // Detach the thread - it will clean up when it finishes
+                    return;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+
+            // Thread finished, safe to join
+            if let Err(e) = handle.join() {
+                log::error!("Listener 线程 join 失败: {:?}", e);
+            }
         }
     }
 }
@@ -168,14 +188,15 @@ pub fn label_to_scancode(label: &str) -> AppResult<u16> {
 
     // Single character keys A-Z, 0-9
     if upper.len() == 1 {
-        let ch = upper.chars().next().unwrap();
-        if ch.is_ascii_uppercase() {
-            // A=0x1E, B=0x30, C=0x2E, etc. (scan codes are not sequential)
-            return Ok(char_to_scancode(ch));
-        }
-        if ch.is_ascii_digit() {
-            // 0=0x0B, 1=0x02, 2=0x03, etc.
-            return Ok(digit_to_scancode(ch));
+        if let Some(ch) = upper.chars().next() {
+            if ch.is_ascii_uppercase() {
+                // A=0x1E, B=0x30, C=0x2E, etc. (scan codes are not sequential)
+                return Ok(char_to_scancode(ch));
+            }
+            if ch.is_ascii_digit() {
+                // 0=0x0B, 1=0x02, 2=0x03, etc.
+                return Ok(digit_to_scancode(ch));
+            }
         }
     }
 

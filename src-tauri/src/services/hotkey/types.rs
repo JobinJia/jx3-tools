@@ -3,6 +3,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -87,6 +88,9 @@ pub struct Runner {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+/// Maximum time to wait for thread to join (in milliseconds)
+const THREAD_JOIN_TIMEOUT_MS: u64 = 500;
+
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 impl Runner {
     pub fn new(stop_flag: Arc<AtomicBool>, handle: thread::JoinHandle<()>) -> Self {
@@ -100,9 +104,30 @@ impl Runner {
         self.stop_flag.store(true, Ordering::SeqCst);
     }
 
+    /// Join the thread with a timeout to prevent freezing
     pub fn join(&mut self) {
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            // Wait for thread to finish with timeout
+            let start = Instant::now();
+            let timeout = Duration::from_millis(THREAD_JOIN_TIMEOUT_MS);
+
+            // Check if thread is finished by polling
+            while !handle.is_finished() {
+                if start.elapsed() >= timeout {
+                    log::warn!(
+                        "Runner 线程在 {}ms 内未能退出，放弃等待",
+                        THREAD_JOIN_TIMEOUT_MS
+                    );
+                    // Detach the thread - it will clean up when it finishes
+                    return;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+
+            // Thread finished, safe to join
+            if let Err(e) = handle.join() {
+                log::error!("Runner 线程 join 失败: {:?}", e);
+            }
         }
     }
 }

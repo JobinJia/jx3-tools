@@ -35,17 +35,23 @@ pub fn open_folder(path: &str) -> AppResult<()> {
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer").arg(path).spawn().ok();
+        if let Err(e) = Command::new("explorer").arg(path).spawn() {
+            log::error!("无法打开文件夹 {}: {}", path, e);
+        }
     }
 
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg(path).spawn().ok();
+        if let Err(e) = Command::new("open").arg(path).spawn() {
+            log::error!("无法打开文件夹 {}: {}", path, e);
+        }
     }
 
     #[cfg(target_os = "linux")]
     {
-        Command::new("xdg-open").arg(path).spawn().ok();
+        if let Err(e) = Command::new("xdg-open").arg(path).spawn() {
+            log::error!("无法打开文件夹 {}: {}", path, e);
+        }
     }
 
     Ok(())

@@ -77,5 +77,9 @@ pub fn run() {
             check_window_valid,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|err| {
+            log::error!("Tauri 应用运行失败: {}", err);
+            eprintln!("Tauri 应用运行失败: {}", err);
+            std::process::exit(1);
+        });
 }

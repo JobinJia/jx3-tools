@@ -43,6 +43,9 @@ pub fn validate_config(config: &HotkeyConfig) -> AppResult<()> {
     if config.interval_ms < 20 {
         return Err(AppError::Hotkey("触发频率不能低于 20 毫秒".into()));
     }
+    if config.interval_ms > 60000 {
+        return Err(AppError::Hotkey("触发频率不能高于 60000 毫秒".into()));
+    }
     if config.start_hotkey.trim().is_empty() {
         return Err(AppError::Hotkey("开始热键不能为空".into()));
     }
@@ -86,6 +89,9 @@ pub fn validate_runtime_config(config: &HotkeyConfig) -> AppResult<()> {
     }
     if config.interval_ms < 20 {
         return Err(AppError::Hotkey("触发频率不能低于 20 毫秒".into()));
+    }
+    if config.interval_ms > 60000 {
+        return Err(AppError::Hotkey("触发频率不能高于 60000 毫秒".into()));
     }
     Ok(())
 }

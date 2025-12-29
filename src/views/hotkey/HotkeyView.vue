@@ -24,6 +24,7 @@ const windowList = ref<WindowInfo[]>([])
 const windowFilter = ref('')
 const windowLoading = ref(false)
 const refreshTimer = ref<number | null>(null)
+const fetchRequestId = ref(0) // Track current fetch to ignore stale results
 
 // 平台检测
 const isWindows = computed(() => navigator.platform.toLowerCase().includes('win'))
@@ -152,13 +153,26 @@ async function fetchWindows() {
   if (!isWindows.value)
     return
 
+  // Increment request ID to track this fetch
+  const currentRequestId = ++fetchRequestId.value
+
   windowLoading.value = true
   try {
-    windowList.value = await hotkeyService.listWindows(windowFilter.value || undefined)
+    const result = await hotkeyService.listWindows(windowFilter.value || undefined)
+    // Only update if this is still the latest request (not stale)
+    if (currentRequestId === fetchRequestId.value) {
+      windowList.value = result
+    }
   } catch (error) {
-    console.error('获取窗口列表失败:', error)
+    // Only log error if this is still the latest request
+    if (currentRequestId === fetchRequestId.value) {
+      console.error('获取窗口列表失败:', error)
+    }
   } finally {
-    windowLoading.value = false
+    // Only clear loading if this is still the latest request
+    if (currentRequestId === fetchRequestId.value) {
+      windowLoading.value = false
+    }
   }
 }
 
@@ -199,6 +213,9 @@ watch(isWindowMode, (newVal) => {
       clearInterval(refreshTimer.value)
       refreshTimer.value = null
     }
+    // Invalidate any pending fetch requests
+    fetchRequestId.value++
+    windowLoading.value = false
   }
 })
 
@@ -220,9 +237,16 @@ async function saveConfig() {
   try {
     await hotkeyStore.saveConfig({ ...formValue })
     message.success('配置已保存，按开始热键即可执行')
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('保存按键配置失败:', error)
-    const msg = typeof error === 'string' ? error : '保存失败，请检查输入'
+    let msg = '保存失败，请检查输入'
+    if (typeof error === 'string') {
+      msg = error
+    } else if (error instanceof Error) {
+      msg = error.message
+    } else if (error && typeof error === 'object' && 'message' in error) {
+      msg = String((error as { message: unknown }).message)
+    }
     message.error(msg)
   }
 }
@@ -306,7 +330,7 @@ onUnmounted(() => {
             />
           </n-form-item>
           <n-form-item label="触发频率 (毫秒)">
-            <n-input-number v-model:value="formValue.intervalMs" :min="20" :step="50" />
+            <n-input-number v-model:value="formValue.intervalMs" :min="20" :max="60000" :step="50" />
           </n-form-item>
           <n-form-item label="开始热键">
             <n-input
