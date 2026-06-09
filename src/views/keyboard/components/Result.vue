@@ -57,8 +57,8 @@ async function handleCopy() {
         暂无记录
       </div>
       <div
-        v-for="(op, i) in recentOps"
-        :key="i"
+        v-for="op in recentOps"
+        :key="op.at"
         class="text-[10px] leading-7 truncate"
         style="color: var(--ink-secondary)"
       >

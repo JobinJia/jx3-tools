@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { KeyboardTemplate, UserSelect } from '@/types'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { useKeyboard } from '@/composables/useKeyboard'
 import Result from './components/Result.vue'
@@ -16,6 +16,11 @@ const userSelect = ref<UserSelect>({
   sourcePath: '',
   target: '',
   targetPath: '',
+})
+
+// 切换 userdata 目录后旧的源/目标选择已无意义，清空避免误操作
+watch(basePath, () => {
+  userSelect.value = { source: '', sourcePath: '', target: '', targetPath: '' }
 })
 
 function setSource(val: { name: string, path: string }) {
@@ -150,6 +155,7 @@ function selectTemplate(template: KeyboardTemplate) {
   text-overflow: ellipsis;
   white-space: nowrap;
   direction: rtl;
+  unicode-bidi: plaintext;
 }
 
 .path-capsule a {
