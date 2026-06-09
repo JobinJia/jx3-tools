@@ -47,11 +47,7 @@ function formatTime(timestamp: number) {
         v-for="template in templates"
         :key="template.id"
         class="flex items-center justify-between p-3 mb-2 rounded cursor-pointer transition-colors border"
-        :class="[
-          selectedPath === template.sourcePath
-            ? 'bg-green-50 dark:bg-green-900 border-green-500'
-            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-400',
-        ]"
+        :class="selectedPath === template.sourcePath ? 'tpl-item tpl-selected' : 'tpl-item'"
         @click="handleSelect(template)"
       >
         <div class="flex flex-col min-w-0 flex-1">
@@ -79,3 +75,19 @@ function formatTime(timestamp: number) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.tpl-item {
+  background: var(--paper-card);
+  border-color: var(--line);
+}
+
+.tpl-item:hover {
+  border-color: var(--ink-muted);
+}
+
+.tpl-selected {
+  background: var(--bamboo-tint);
+  border-color: var(--bamboo);
+}
+</style>
