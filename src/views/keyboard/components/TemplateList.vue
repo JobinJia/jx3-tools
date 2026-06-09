@@ -42,22 +42,22 @@ function formatTime(timestamp: number) {
       </template>
     </n-empty>
 
-    <div v-else class="flex-1 overflow-y-auto min-h-0">
+    <div v-else class="min-h-0 flex-1 overflow-y-auto">
       <div
         v-for="template in templates"
         :key="template.id"
-        class="flex items-center justify-between p-3 mb-2 rounded cursor-pointer transition-colors border"
+        class="mb-2 flex cursor-pointer items-center justify-between border rounded p-3 transition-colors"
         :class="selectedPath === template.sourcePath ? 'tpl-item tpl-selected' : 'tpl-item'"
         @click="handleSelect(template)"
       >
-        <div class="flex flex-col min-w-0 flex-1">
+        <div class="min-w-0 flex flex-1 flex-col">
           <n-text strong class="truncate">
             {{ template.name }}
           </n-text>
-          <n-text depth="3" class="text-xs truncate">
+          <n-text depth="3" class="truncate text-xs">
             {{ template.characterName }}
           </n-text>
-          <n-text depth="3" class="text-xs truncate mt-1">
+          <n-text depth="3" class="mt-1 truncate text-xs">
             收藏于 {{ formatTime(template.createdAt) }}
           </n-text>
         </div>

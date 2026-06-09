@@ -10,9 +10,9 @@ defineProps<{
     <div class="flex items-end justify-between">
       <div>
         <div class="page-title">
-          {{ title }} <span class="seal-dot align-middle ml-0.5" />
+          {{ title }} <span class="seal-dot ml-0.5 align-middle" />
         </div>
-        <div v-if="description" class="text-xs mt-1" style="color: var(--ink-muted)">
+        <div v-if="description" class="mt-1 text-xs" style="color: var(--ink-muted)">
           {{ description }}
         </div>
       </div>

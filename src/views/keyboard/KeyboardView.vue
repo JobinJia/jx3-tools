@@ -40,10 +40,10 @@ function selectTemplate(template: KeyboardTemplate) {
 </script>
 
 <template>
-  <div class="p-5 h-full flex flex-col">
+  <div class="h-full flex flex-col p-5">
     <!-- 空状态：未选择 userdata 目录 -->
-    <div v-if="!basePath" class="flex-1 flex items-center justify-center">
-      <div class="paper-card p-8 text-center max-w-[360px]">
+    <div v-if="!basePath" class="flex flex-1 items-center justify-center">
+      <div class="paper-card max-w-[360px] p-8 text-center">
         <div class="empty-seal">
           键
         </div>
@@ -81,9 +81,9 @@ function selectTemplate(template: KeyboardTemplate) {
         </template>
       </PageHeader>
 
-      <div class="flex-1 flex gap-3.5 min-h-0">
+      <div class="min-h-0 flex flex-1 gap-3.5">
         <!-- 源卡片 -->
-        <div class="paper-card w-[270px] flex flex-col overflow-hidden flex-shrink-0">
+        <div class="paper-card w-[270px] flex flex-shrink-0 flex-col overflow-hidden">
           <div class="card-head">
             <span class="text-xs font-600" style="color: var(--ink)">源角色</span>
             <n-radio-group v-model:value="sourceTab" size="small">
@@ -106,12 +106,12 @@ function selectTemplate(template: KeyboardTemplate) {
         </div>
 
         <!-- 流向箭头 -->
-        <div class="flex items-center justify-center w-6 flex-shrink-0 text-base" style="color: var(--cinnabar)">
+        <div class="w-6 flex flex-shrink-0 items-center justify-center text-base" style="color: var(--cinnabar)">
           ➜
         </div>
 
         <!-- 目标卡片 -->
-        <div class="paper-card w-[270px] flex flex-col overflow-hidden flex-shrink-0">
+        <div class="paper-card w-[270px] flex flex-shrink-0 flex-col overflow-hidden">
           <div class="card-head">
             <span class="text-xs font-600" style="color: var(--ink)">目标角色</span>
             <span class="text-[10px]" style="color: var(--ink-muted)">键位将被覆盖</span>

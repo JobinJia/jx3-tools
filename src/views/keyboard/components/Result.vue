@@ -21,9 +21,9 @@ async function handleCopy() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3 h-full min-w-[170px] flex-1">
+  <div class="h-full min-w-[170px] flex flex-1 flex-col gap-3">
     <div class="paper-card p-3.5">
-      <div class="text-[11px] mb-2" style="color: var(--ink-muted)">
+      <div class="mb-2 text-[11px]" style="color: var(--ink-muted)">
         本次操作
       </div>
       <div class="text-xs leading-7" style="color: var(--ink)">
@@ -44,13 +44,13 @@ async function handleCopy() {
       >
         {{ copyLoading ? '复制中…' : '复 制 键 位' }}
       </button>
-      <div class="text-[9px] text-center mt-1.5" style="color: var(--ink-muted)">
+      <div class="mt-1.5 text-center text-[9px]" style="color: var(--ink-muted)">
         目标角色现有键位将被覆盖，不可撤销
       </div>
     </div>
 
-    <div class="paper-card p-3 flex-1 overflow-y-auto min-h-0">
-      <div class="text-[11px] mb-1.5" style="color: var(--ink-muted)">
+    <div class="paper-card min-h-0 flex-1 overflow-y-auto p-3">
+      <div class="mb-1.5 text-[11px]" style="color: var(--ink-muted)">
         最近操作
       </div>
       <div v-if="recentOps.length === 0" class="text-[10px]" style="color: var(--ink-muted)">
@@ -59,7 +59,7 @@ async function handleCopy() {
       <div
         v-for="op in recentOps"
         :key="op.at"
-        class="text-[10px] leading-7 truncate"
+        class="truncate text-[10px] leading-7"
         style="color: var(--ink-secondary)"
       >
         <span style="color: var(--bamboo)">✓</span> {{ op.source }} → {{ op.target }}

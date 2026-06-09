@@ -240,7 +240,7 @@ watch(pattern, () => {
 <template>
   <div class="h-full w-full flex flex-col p-2.5">
     <NInput v-model:value="pattern" size="small" :placeholder="placeholder" clearable />
-    <div class="flex gap-1 mt-1.5">
+    <div class="mt-1.5 flex gap-1">
       <n-button size="tiny" quaternary @click="expandAll">
         展开全部
       </n-button>
@@ -248,7 +248,7 @@ watch(pattern, () => {
         收起全部
       </n-button>
     </div>
-    <div class="flex-1 overflow-y-auto mt-1.5 min-h-0">
+    <div class="mt-1.5 min-h-0 flex-1 overflow-y-auto">
       <NTree
         :key="treeKey"
         class="compact-tree"
@@ -272,11 +272,11 @@ watch(pattern, () => {
 
     <!-- 收藏弹窗 -->
     <m-dialog v-model:visible="showFavoriteModal" title="保存为常用键位">
-      <div class="flex flex-col h-full">
+      <div class="h-full flex flex-col">
         <div class="flex-1 p-4">
           <m-input v-model="favoriteName" placeholder="保存名称(如：万灵)" />
         </div>
-        <div class="flex justify-end gap-2 p-4 border-t" style="border-color: var(--line-soft)">
+        <div class="flex justify-end gap-2 border-t p-4" style="border-color: var(--line-soft)">
           <m-button @click="showFavoriteModal = false">
             取消
           </m-button>

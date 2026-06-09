@@ -294,7 +294,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="p-5 h-full">
+  <div class="h-full p-5">
     <PageHeader title="按键" description="全局热键控制的自动按键">
       <template #extra>
         <div class="status-badge" :class="statusClass">
@@ -305,12 +305,12 @@ onUnmounted(() => {
       </template>
     </PageHeader>
 
-    <n-alert v-if="status.lastError" type="error" title="错误" class="max-w-[480px] mx-auto mb-3">
+    <n-alert v-if="status.lastError" type="error" title="错误" class="mx-auto mb-3 max-w-[480px]">
       {{ status.lastError }}
     </n-alert>
 
     <n-spin :show="loading">
-      <div v-if="config" class="max-w-[480px] mx-auto">
+      <div v-if="config" class="mx-auto max-w-[480px]">
         <div class="paper-card px-4.5 py-4">
           <div class="section-label">
             按键行为
@@ -348,7 +348,7 @@ onUnmounted(() => {
 
           <div v-if="isWindowMode && isWindows" class="form-row !items-start">
             <span class="pt-1">目标窗口</span>
-            <div class="flex-1 ml-4">
+            <div class="ml-4 flex-1">
               <n-input-group>
                 <n-input
                   v-model:value="windowFilter"
@@ -434,7 +434,7 @@ onUnmounted(() => {
             >
           </div>
 
-          <div class="flex gap-2.5 mt-4 items-center">
+          <div class="mt-4 flex items-center gap-2.5">
             <n-button type="primary" :loading="saving" @click="saveConfig">
               保存配置
             </n-button>
@@ -444,7 +444,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div class="text-center mt-3 text-[10px]" style="color: var(--ink-muted)">
+        <div class="mt-3 text-center text-[10px]" style="color: var(--ink-muted)">
           点击热键输入框后按下键盘即可录入 · macOS 需授权辅助功能
           <a class="cursor-pointer" style="color: var(--indigo)" @click="helpExpanded = !helpExpanded">
             {{ helpExpanded ? '收起 ▴' : '更多说明 ▾' }}
@@ -452,7 +452,7 @@ onUnmounted(() => {
         </div>
         <div
           v-if="helpExpanded"
-          class="paper-card p-4 mt-2 text-xs leading-relaxed"
+          class="paper-card mt-2 p-4 text-xs leading-relaxed"
           style="color: var(--ink-secondary)"
         >
           <p>

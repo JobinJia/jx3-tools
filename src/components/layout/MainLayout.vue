@@ -29,7 +29,7 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
 </script>
 
 <template>
-  <div class="flex h-screen w-full">
+  <div class="h-screen w-full flex">
     <aside class="sider">
       <nav class="flex flex-col items-center gap-3">
         <n-tooltip v-for="item in navItems" :key="item.name" placement="right">
@@ -58,7 +58,7 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
         <span class="version">v{{ version }}</span>
       </div>
     </aside>
-    <main class="flex-1 min-w-0 overflow-y-auto paper-bg">
+    <main class="paper-bg min-w-0 flex-1 overflow-y-auto">
       <router-view />
     </main>
   </div>
