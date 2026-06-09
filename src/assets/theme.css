@@ -1,0 +1,114 @@
+/* 新中式主题 token —— 浅色「宣纸」 / 深色「夜宣纸」 */
+:root {
+  --paper-bg: #f4eedd;
+  --paper-card: #fffdf6;
+  --paper-card-soft: #f7f2e4;
+  --line: #ddd3bb;
+  --line-soft: #efe8d4;
+  --ink: #2c2a26;
+  --ink-secondary: #6f675a;
+  --ink-muted: #a09a8c;
+  --cinnabar: #9c2f23;
+  --cinnabar-hover: #b03a2e;
+  --cinnabar-pressed: #7e251c;
+  --bamboo: #5a7247;
+  --ochre: #b07936;
+  --indigo: #44617b;
+  --ink-error: #8f2727;
+  --cinnabar-tint: rgba(156, 47, 35, 0.08);
+  --bamboo-tint: rgba(90, 114, 71, 0.1);
+  --ochre-tint: rgba(176, 121, 54, 0.1);
+  --indigo-tint: rgba(68, 97, 123, 0.08);
+  --sider-bg: #2c2a26;
+  --sider-text: #9a9183;
+  --sider-active-text: #f5efe2;
+  --sider-line: rgba(245, 239, 226, 0.18);
+}
+
+.dark {
+  --paper-bg: #211f1b;
+  --paper-card: #2b2823;
+  --paper-card-soft: #26231f;
+  --line: #3d382f;
+  --line-soft: #353027;
+  --ink: #e8e0cd;
+  --ink-secondary: #b3a994;
+  --ink-muted: #7d7665;
+  --cinnabar: #c24a3a;
+  --cinnabar-hover: #d05c4b;
+  --cinnabar-pressed: #a63c2e;
+  --bamboo: #7e9a68;
+  --ochre: #c99850;
+  --indigo: #7395b3;
+  --ink-error: #c0564a;
+  --cinnabar-tint: rgba(194, 74, 58, 0.12);
+  --bamboo-tint: rgba(126, 154, 104, 0.15);
+  --ochre-tint: rgba(201, 152, 80, 0.12);
+  --indigo-tint: rgba(115, 149, 179, 0.12);
+  --sider-bg: #1a1816;
+}
+
+/* 页面底：宣纸色 + 细噪点纹理（替代古塔背景图） */
+.paper-bg {
+  background-color: var(--paper-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.04'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 卡片 */
+.paper-card {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(44, 42, 38, 0.04);
+}
+
+/* 宋体页面标题 */
+.page-title {
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: var(--ink);
+}
+
+/* 朱砂小方印 */
+.seal-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--cinnabar);
+  border-radius: 1px;
+}
+
+/* 浓→淡渐变墨线（页头分隔） */
+.ink-line {
+  height: 1px;
+  background: linear-gradient(90deg, var(--ink) 0%, transparent 100%);
+  opacity: 0.55;
+}
+
+/* 等宽（MAC 地址、热键值） */
+.text-mono {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+/* 键帽输入框（热键录入） */
+.keycap-input {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: var(--paper-card-soft);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 4px 14px;
+  color: var(--ink);
+  width: 150px;
+  text-align: center;
+  outline: none;
+  cursor: pointer;
+}
+.keycap-input:focus {
+  border-color: var(--cinnabar);
+}
+.keycap-input::placeholder {
+  color: var(--ink-muted);
+}
