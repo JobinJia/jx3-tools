@@ -47,6 +47,7 @@ A call flows: Vue view → `src/services/*.service.ts` (typed `invoke` wrappers 
 - `services/` - `invoke` wrappers, re-exported from `services/index.ts`
 - `composables/` - `useKeyboard`/`useMac` hold feature state as **module-level singleton refs** (shared across components); persistent bits use VueUse `useStorage` (localStorage: keyboard base path, saved templates)
 - `stores/hotkey.ts` - the only Pinia store; fetches config/status and subscribes to the Tauri event `hotkey://status` for live status pushes from Rust
+- Theme system: `assets/theme.css` (ink-paper CSS variable tokens, light + dark via `.dark` class), `composables/useTheme.ts` (three-state mode), `src/theme/naive.ts` (naive-ui overrides — keep color values in sync with theme.css), `components/layout/PageHeader.vue` (unified page header)
 - `@/` alias → `src/` (in `vite.config.ts` and `tsconfig.app.json`)
 - `src/types/shims/shuimo-ui.d.ts` - type shim mapped via tsconfig `paths`; shuimo-ui-nightly ships broken type packaging (its d.ts imports raw `.tsx` sources), so TS resolves `shuimo-ui` to this shim while Vite still bundles the real package
 
