@@ -1,11 +1,17 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useRecentOps } from '../useRecentOps'
 
 describe('useRecentOps', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-15T14:02:00'))
     localStorage.clear()
     const { recentOps } = useRecentOps()
     recentOps.value = []
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('adds newest record first', () => {
@@ -25,14 +31,18 @@ describe('useRecentOps', () => {
     expect(recentOps.value[0]!.source).toBe('s12')
   })
 
-  it('formats today as HH:mm and older days as M/D', () => {
+  it('formats today as HH:mm, yesterday as 昨天, older as M/D', () => {
     const { formatOpTime } = useRecentOps()
-    const now = new Date()
-    now.setHours(14, 2, 0, 0)
-    expect(formatOpTime(now.getTime())).toBe('14:02')
+    expect(formatOpTime(new Date('2026-03-15T14:02:00').getTime())).toBe('14:02')
+    expect(formatOpTime(new Date('2026-03-15T08:05:00').getTime())).toBe('08:05')
+    expect(formatOpTime(new Date('2026-03-14T22:00:00').getTime())).toBe('昨天')
+    expect(formatOpTime(new Date('2026-03-12T10:00:00').getTime())).toBe('3/12')
+  })
 
-    const old = new Date(now)
-    old.setDate(old.getDate() - 3)
-    expect(formatOpTime(old.getTime())).toBe(`${old.getMonth() + 1}/${old.getDate()}`)
+  it('handles month boundary for yesterday', () => {
+    vi.setSystemTime(new Date('2026-03-01T09:00:00'))
+    const { formatOpTime } = useRecentOps()
+    expect(formatOpTime(new Date('2026-02-28T23:59:00').getTime())).toBe('昨天')
+    expect(formatOpTime(new Date('2026-02-27T12:00:00').getTime())).toBe('2/27')
   })
 })
