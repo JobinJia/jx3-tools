@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
-import pkg from '../../../package.json'
+import { version } from '../../../package.json'
 
 const router = useRouter()
 const route = useRoute()
@@ -37,6 +37,7 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
             <button
               class="seal-nav"
               :class="{ active: route.name === item.name }"
+              :aria-label="item.title"
               @click="router.push({ name: item.name })"
             >
               {{ item.sealChar }}
@@ -54,7 +55,7 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
           </template>
           主题：{{ themeTitle }}
         </n-tooltip>
-        <span class="version">v{{ pkg.version }}</span>
+        <span class="version">v{{ version }}</span>
       </div>
     </aside>
     <main class="flex-1 min-w-0 overflow-y-auto paper-bg">
@@ -84,7 +85,10 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
   color: var(--sider-text);
   background: transparent;
   border: 1px solid var(--sider-line);
-  transition: all 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background 0.2s;
 }
 
 .seal-nav:hover {
@@ -114,8 +118,15 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
   color: var(--sider-active-text);
 }
 
+.seal-nav:focus-visible,
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--sider-active-text);
+  outline-offset: 2px;
+}
+
 .version {
   font-size: 9px;
-  color: #5c564b;
+  color: var(--sider-text);
+  opacity: 0.55;
 }
 </style>
