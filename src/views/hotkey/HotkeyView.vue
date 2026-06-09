@@ -46,7 +46,13 @@ watch(
   { immediate: true },
 )
 
-const statusText = computed(() => (status.value.running ? '运行中' : '已停止'))
+const statusText = computed(() => {
+  if (status.value.running)
+    return '运行中'
+  if (!status.value.registered)
+    return '未注册'
+  return '已停止'
+})
 const statusClass = computed(() => {
   if (status.value.running)
     return 'running'
@@ -110,6 +116,13 @@ function buildHotkeyString(e: KeyboardEvent): string {
 
 // 处理触发按键的键盘事件（只捕获单个按键）
 function handleTriggerKeyDown(e: KeyboardEvent) {
+  // 原生 input 替代 n-input 后需自行防护：IME 组合中不录入；Esc 取消录入
+  if (e.isComposing)
+    return
+  if (e.key === 'Escape') {
+    ;(e.target as HTMLInputElement)?.blur()
+    return
+  }
   e.preventDefault()
   e.stopPropagation()
 
@@ -124,6 +137,13 @@ function handleTriggerKeyDown(e: KeyboardEvent) {
 
 // 处理开始热键的键盘事件（支持组合键）
 function handleStartHotkeyKeyDown(e: KeyboardEvent) {
+  // 原生 input 替代 n-input 后需自行防护：IME 组合中不录入；Esc 取消录入
+  if (e.isComposing)
+    return
+  if (e.key === 'Escape') {
+    ;(e.target as HTMLInputElement)?.blur()
+    return
+  }
   e.preventDefault()
   e.stopPropagation()
 
@@ -138,6 +158,13 @@ function handleStartHotkeyKeyDown(e: KeyboardEvent) {
 
 // 处理结束热键的键盘事件（支持组合键）
 function handleStopHotkeyKeyDown(e: KeyboardEvent) {
+  // 原生 input 替代 n-input 后需自行防护：IME 组合中不录入；Esc 取消录入
+  if (e.isComposing)
+    return
+  if (e.key === 'Escape') {
+    ;(e.target as HTMLInputElement)?.blur()
+    return
+  }
   e.preventDefault()
   e.stopPropagation()
 
@@ -371,7 +398,7 @@ onUnmounted(() => {
               :step="50"
             >
               <template #suffix>
-                毫秒
+                毫秒/次
               </template>
             </n-input-number>
           </div>

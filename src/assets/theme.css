@@ -103,7 +103,9 @@
   border-radius: 5px;
   padding: 4px 14px;
   color: var(--ink);
-  width: 150px;
+  width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
   outline: none;
   cursor: pointer;
