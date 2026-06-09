@@ -32,3 +32,6 @@ coverage
 
 src-tauri/gen/
 src-tauri/target/
+
+# superpowers brainstorm sessions
+.superpowers/
