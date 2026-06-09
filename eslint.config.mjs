@@ -5,6 +5,7 @@ export default antfu({
   formatters: true,
   ignores: [
     './AGENTS.md',
+    'docs/superpowers/**',
   ],
   rules: {
     'no-console': 'off',
