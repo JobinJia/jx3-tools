@@ -1,78 +1,121 @@
-<script setup lang="tsx">
-import type { MenuOption } from 'naive-ui'
-import type { Component } from 'vue'
+<script setup lang="ts">
 import type { RouteRecordRaw } from 'vue-router'
-import { NIcon, useOsTheme } from 'naive-ui'
-import { computed, h } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useTheme } from '@/composables/useTheme'
+import pkg from '../../../package.json'
 
 const router = useRouter()
-// 获取系统主题
-const osTheme = useOsTheme()
+const route = useRoute()
+const { mode, cycleMode } = useTheme()
 
-function renderIcon(icon?: Component) {
-  if (!icon)
-    return null
-  return () => h(NIcon, { size: 36 }, { default: () => h(icon, {
-  }) })
+interface NavItem {
+  name: string
+  title: string
+  sealChar: string
 }
 
-const menuOptions = computed<MenuOption[]>(() => {
+const navItems = computed<NavItem[]>(() => {
   const rootRoute = router.options.routes.find(r => r.path === '/') as RouteRecordRaw
-  const routes = rootRoute?.children || []
-
-  return routes.map(r => ({
-    label: () =>
-      h(
-        RouterLink,
-        {
-          to: {
-            name: r.name,
-          },
-        },
-        { default: () => r.meta!.title as string },
-      ),
-    key: r.name,
-    icon: renderIcon(r.meta?.icon as Component),
-  } as unknown as MenuOption))
+  return (rootRoute?.children || []).map(r => ({
+    name: String(r.name),
+    title: r.meta?.title ?? '',
+    sealChar: r.meta?.sealChar ?? '',
+  }))
 })
 
-// 计算侧边栏的样式类，根据主题切换不同的背景效果
-const siderClass = computed(() => {
-  const baseClass = 'h-screen backdrop-blur-sm bg-cover bg-center bg-no-repeat'
-  return osTheme.value === 'dark'
-    ? `${baseClass} bg-[rgba(0,0,0,0.7)] dark:bg-[url('@/assets/pagoda-8018757_1280.jpg')]`
-    : `${baseClass} bg-[url('@/assets/pagoda-8018757_1280.jpg')]`
-})
+const themeIcon = computed(() => (mode.value === 'system' ? '◐' : mode.value === 'light' ? '☀' : '☾'))
+const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mode.value === 'light' ? '浅色' : '深色'))
 </script>
 
 <template>
-  <n-layout has-sider>
-    <n-layout-sider
-      :collapsed-width="64"
-      collapse-mode="width"
-      collapsed
-      :class="siderClass"
-    >
-      <n-menu
-        collapsed
-        class="h-full !bg-transparent"
-        :options="menuOptions"
-        key-field="key"
-      />
-    </n-layout-sider>
-    <n-layout>
-      <n-layout-content content-style="padding: 0;">
-        <MRicePaper class="h-screen w-full">
-          <router-view />
-        </MRicePaper>
-      </n-layout-content>
-    </n-layout>
-  </n-layout>
+  <div class="flex h-screen w-full">
+    <aside class="sider">
+      <nav class="flex flex-col items-center gap-3">
+        <n-tooltip v-for="item in navItems" :key="item.name" placement="right">
+          <template #trigger>
+            <button
+              class="seal-nav"
+              :class="{ active: route.name === item.name }"
+              @click="router.push({ name: item.name })"
+            >
+              {{ item.sealChar }}
+            </button>
+          </template>
+          {{ item.title }}
+        </n-tooltip>
+      </nav>
+      <div class="mt-auto flex flex-col items-center gap-2">
+        <n-tooltip placement="right">
+          <template #trigger>
+            <button class="theme-toggle" @click="cycleMode">
+              {{ themeIcon }}
+            </button>
+          </template>
+          主题：{{ themeTitle }}
+        </n-tooltip>
+        <span class="version">v{{ pkg.version }}</span>
+      </div>
+    </aside>
+    <main class="flex-1 min-w-0 overflow-y-auto paper-bg">
+      <router-view />
+    </main>
+  </div>
 </template>
 
 <style scoped>
-:deep(.n-menu-item-content) {
-  padding-left: 20px !important;
+.sider {
+  width: 58px;
+  flex-shrink: 0;
+  background: var(--sider-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0 12px;
+}
+
+.seal-nav {
+  width: 36px;
+  height: 36px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 17px;
+  color: var(--sider-text);
+  background: transparent;
+  border: 1px solid var(--sider-line);
+  transition: all 0.2s;
+}
+
+.seal-nav:hover {
+  color: var(--sider-active-text);
+  border-color: rgba(245, 239, 226, 0.4);
+}
+
+.seal-nav.active {
+  background: var(--cinnabar);
+  color: var(--sider-active-text);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px rgba(245, 239, 226, 0.25);
+}
+
+.theme-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--sider-line);
+  background: transparent;
+  color: var(--sider-text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.theme-toggle:hover {
+  color: var(--sider-active-text);
+}
+
+.version {
+  font-size: 9px;
+  color: #5c564b;
 }
 </style>
