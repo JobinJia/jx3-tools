@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { useTheme } from '../useTheme'
 
 describe('useTheme', () => {
   beforeEach(() => {
     localStorage.clear()
+    const { mode } = useTheme()
+    mode.value = 'system'
     document.documentElement.classList.remove('dark')
   })
 
@@ -39,5 +41,30 @@ describe('useTheme', () => {
     await nextTick()
     expect(isDark.value).toBe(true)
     expect(naiveTheme.value).not.toBeNull()
+  })
+
+  it('follows OS dark preference in system mode', async () => {
+    vi.resetModules()
+    const listeners: Array<(e: { matches: boolean }) => void> = []
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: (_type: string, cb: (e: { matches: boolean }) => void) => {
+        listeners.push(cb)
+      },
+    }))
+    try {
+      const fresh = await import('../useTheme')
+      const { mode, isDark } = fresh.useTheme()
+      mode.value = 'system'
+      await nextTick()
+      expect(isDark.value).toBe(true)
+
+      listeners.forEach(cb => cb({ matches: false }))
+      await nextTick()
+      expect(isDark.value).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

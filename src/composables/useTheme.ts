@@ -21,14 +21,14 @@ const isDark = computed(() =>
   mode.value === 'system' ? osDark.value : mode.value === 'dark',
 )
 
-// 根元素 .dark class 同步（模块加载时注册一次）
+// 根元素 .dark class 同步（模块加载时注册一次；detached effect，随应用整个生命周期存活，故不保留 stop handle）
 watchEffect(() => {
   document.documentElement.classList.toggle('dark', isDark.value)
 })
 
-export function useTheme() {
-  const naiveTheme = computed<GlobalTheme | null>(() => (isDark.value ? darkTheme : null))
+const naiveTheme = computed<GlobalTheme | null>(() => (isDark.value ? darkTheme : null))
 
+export function useTheme() {
   function cycleMode() {
     mode.value = mode.value === 'system' ? 'light' : mode.value === 'light' ? 'dark' : 'system'
   }
