@@ -16,7 +16,7 @@ defineProps<{
           {{ description }}
         </div>
       </div>
-      <div class="flex items-center">
+      <div v-if="$slots.extra" class="flex items-center">
         <slot name="extra" />
       </div>
     </div>
