@@ -2,7 +2,7 @@
 
 This template should help get you started developing with Vue 3 in Vite.
 
-# list
+## list
 
 [https://icones.js.org/](https://icones.js.org/)
 

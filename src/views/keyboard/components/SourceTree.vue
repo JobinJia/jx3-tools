@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TreeOverrideNodeClickBehavior } from 'naive-ui'
+import type { TreeOption, TreeOverrideNodeClickBehavior } from 'naive-ui'
 import type { FileEntry } from '@/types'
 import { NCheckbox, NInput, NTree, useMessage } from 'naive-ui'
 import { h, ref, watch } from 'vue'
@@ -73,8 +73,14 @@ watch(() => basePath.value, async (newPath) => {
   }
 }, { immediate: true })
 
-function handleFilter(ptn: string, node: FileEntry) {
-  return node.name.includes(ptn)
+// NTree 的 data 实际是 FileEntry[]（key-field="id"、label-field="name"），
+// 回调签名按 naive-ui 的 TreeOption 声明，这里收窄回真实类型
+function toFileEntry(option: TreeOption): FileEntry {
+  return option as unknown as FileEntry
+}
+
+function handleFilter(ptn: string, node: TreeOption) {
+  return toFileEntry(node).name.includes(ptn)
 }
 
 const override: TreeOverrideNodeClickBehavior = ({ option }) => {
@@ -84,7 +90,7 @@ const override: TreeOverrideNodeClickBehavior = ({ option }) => {
   return 'default'
 }
 
-function renderPrefix(info: { option: FileEntry, checked: boolean, selected: boolean }) {
+function renderPrefix(info: { option: TreeOption, checked: boolean, selected: boolean }) {
   const { option, selected } = info
   if (option?.children) {
     return h(FlatColorIconsFolder)
@@ -112,8 +118,8 @@ function handleOpenFolder(node: FileEntry, e: Event) {
   }
 }
 
-function renderLabel(info: { option: FileEntry }) {
-  const { option } = info
+function renderLabel(info: { option: TreeOption }) {
+  const option = toFileEntry(info.option)
   const labelText = option?.name || ''
 
   // 目录节点只显示名称
@@ -177,10 +183,11 @@ function renderLabel(info: { option: FileEntry }) {
 
 function handleSelectedKeys(
   _keys: Array<string | number>,
-  _option: Array<FileEntry | null>,
-  meta: { node: FileEntry | null, action: 'select' | 'unselect' },
+  _option: Array<TreeOption | null>,
+  meta: { node: TreeOption | null, action: 'select' | 'unselect' },
 ) {
-  const { node, action } = meta
+  const { action } = meta
+  const node = meta.node ? toFileEntry(meta.node) : null
   if (node?.children) {
     return
   }

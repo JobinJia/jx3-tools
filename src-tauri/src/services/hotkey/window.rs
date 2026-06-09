@@ -18,7 +18,8 @@ mod windows_impl {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
 
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
@@ -150,7 +151,7 @@ mod windows_impl {
 
     /// 检查窗口是否有效
     pub fn is_window_valid(hwnd: u64) -> bool {
-        unsafe { IsWindow(u64_to_hwnd(hwnd)).as_bool() }
+        unsafe { IsWindow(Some(u64_to_hwnd(hwnd))).as_bool() }
     }
 
     /// 向指定窗口发送按键
@@ -158,12 +159,12 @@ mod windows_impl {
         let hwnd = u64_to_hwnd(hwnd);
 
         unsafe {
-            if !IsWindow(hwnd).as_bool() {
+            if !IsWindow(Some(hwnd)).as_bool() {
                 return Err(AppError::Hotkey("目标窗口已关闭".into()));
             }
 
             // 发送 WM_KEYDOWN
-            PostMessageW(hwnd, WM_KEYDOWN, WPARAM(virtual_key as usize), LPARAM(0))
+            PostMessageW(Some(hwnd), WM_KEYDOWN, WPARAM(virtual_key as usize), LPARAM(0))
                 .map_err(|e| AppError::Hotkey(format!("发送 WM_KEYDOWN 失败: {e}")))?;
 
             // 短暂延迟
@@ -171,7 +172,7 @@ mod windows_impl {
 
             // 发送 WM_KEYUP (设置 bit 31 和 bit 30 表示 key release)
             PostMessageW(
-                hwnd,
+                Some(hwnd),
                 WM_KEYUP,
                 WPARAM(virtual_key as usize),
                 LPARAM(0xC0000001u32 as isize),

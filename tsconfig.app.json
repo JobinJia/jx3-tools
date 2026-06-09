@@ -3,9 +3,10 @@
   "compilerOptions": {
     "composite": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // Work around broken type packaging in shuimo-ui-nightly; see the shim file
+      "shuimo-ui": ["./src/types/shims/shuimo-ui.d.ts"]
     }
   },
   "include": ["env.d.ts", "src/**/*", "src/**/*.vue", "components.d.ts"],

@@ -4,66 +4,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-JX3-Tools is a Tauri v2 desktop application for the game JX3 (剑网三). It provides utility features including:
+JX3-Tools is a Tauri v2 desktop application for the game JX3 (剑网三), primarily targeting **Windows** (macOS is dev-only; the core features are stubbed there). Three vertical features:
 
-- **Keyboard remapping** - Copy keyboard configuration files between game accounts/characters
-- **MAC address management** - View, modify, and restore network MAC addresses
-- **Hotkey automation** - Configure and run automated key sequences with global shortcuts
+- **Keyboard remapping (改键)** - Copy keyboard config directories between game accounts/characters inside the JX3 `userdata` folder
+- **MAC address management (MAC地址)** - View/randomize/restore the NIC MAC address via PowerShell + registry, with optional auto-restore on reboot
+- **Hotkey automation (按键)** - Global start/stop hotkeys (Interception driver) that toggle an auto key-press loop, either globally or sent to a specific window
 
 ## Tech Stack
 
-- **Frontend**: Vue 3 + TypeScript + Vite 7 + Pinia + Vue Router
-- **Backend**: Tauri 2 (Rust)
-- **UI**: shuimo-ui (水墨 UI) + UnoCSS
-- **HTTP Client**: Alova
-- **Testing**: Vitest (unit), Cypress (e2e)
-- **Linting**: ESLint with @antfu/eslint-config
+- **Frontend**: Vue 3 (`<script setup>` + TS) + Vite 8 (Rolldown) + Pinia + Vue Router 5 + UnoCSS
+- **UI**: shuimo-ui (水墨 UI, registered globally via `createMUI`) **and** naive-ui (auto-imported via resolver; `useMessage` is the standard toast/error channel)
+- **Backend**: Rust, Tauri 2 (plugins: log, dialog, global-shortcut)
+- **Testing**: Vitest (jsdom), Cypress e2e; **Linting**: ESLint @antfu/eslint-config
 
 ## Common Commands
 
 ```bash
-pnpm install          # Install dependencies
+pnpm install          # pnpm@10, Node >= 20.19
 pnpm tauri:dev        # Run Tauri app in development mode
 pnpm tauri:build      # Build production Tauri app
-pnpm dev              # Run Vite dev server only (no Tauri)
-pnpm build            # Type-check and build frontend
-pnpm test:unit        # Run unit tests with Vitest
-pnpm lint             # Lint and auto-fix
-pnpm release patch    # Bump version (patch/minor/major), updates both package.json and tauri.conf.json
+pnpm dev              # Vite dev server only (no Tauri), port 5400
+pnpm build            # Type-check (vue-tsc) and build frontend
+pnpm type-check       # Type-check only
+pnpm test:unit        # Vitest; single test: pnpm test:unit <name-pattern>
+pnpm test:e2e         # Cypress against production build
+pnpm test:e2e:dev     # Cypress against Vite dev server
+pnpm lint             # ESLint with auto-fix
+pnpm release          # Version bump via bumpp (see Release section)
 ```
+
+Unit specs live in `src/**/__tests__/*.spec.ts`. Rust has no test suite; CI (`windows-test.yml`) builds on windows-2022 for every push/PR to main.
 
 ## Architecture
 
+A call flows: Vue view → `src/services/*.service.ts` (typed `invoke` wrappers — the **only** place that calls `invoke`) → Rust `commands/*.rs` (thin `#[tauri::command]` layer that pulls services from `AppState`) → Rust `services/*` (business logic). Keep this layering when adding features.
+
+**Rust↔TS contract**: Rust types use `#[serde(rename_all = "camelCase")]`; the matching TS interfaces live in `src/types/` (`hotkey.ts`, `keyboard.ts`, `mac.ts`). Changing one side requires changing the other. Errors cross IPC as plain strings (`AppError` serializes to its Display message, in Chinese); the frontend surfaces them via naive-ui `useMessage`.
+
 ### Frontend (`src/`)
 
-- `views/` - Page components: KeyboardView (改键), MacId (MAC地址), HotkeyView (按键)
-- `stores/` - Pinia stores (counter.ts, hotkey.ts)
-- `composables/` - Vue composables for shared logic
-- `request/` - Alova HTTP client configuration
-- `router/index.ts` - Vue Router with MainLayout wrapping all views
+- `views/` - one dir per feature with local `components/`: `keyboard/KeyboardView.vue`, `mac-id/MacId.vue`, `hotkey/HotkeyView.vue`; routes defined in `router/index.ts`, all wrapped by `components/layout/MainLayout.vue`
+- `services/` - `invoke` wrappers, re-exported from `services/index.ts`
+- `composables/` - `useKeyboard`/`useMac` hold feature state as **module-level singleton refs** (shared across components); persistent bits use VueUse `useStorage` (localStorage: keyboard base path, saved templates)
+- `stores/hotkey.ts` - the only Pinia store; fetches config/status and subscribes to the Tauri event `hotkey://status` for live status pushes from Rust
+- `@/` alias → `src/` (in `vite.config.ts` and `tsconfig.app.json`)
+- `src/types/shims/shuimo-ui.d.ts` - type shim mapped via tsconfig `paths`; shuimo-ui-nightly ships broken type packaging (its d.ts imports raw `.tsx` sources), so TS resolves `shuimo-ui` to this shim while Vite still bundles the real package
+
+Components and icons are auto-imported: `unplugin-vue-components` (with `NaiveUiResolver`) and `unplugin-icons` generate `components.d.ts`; icons import as `~icons/<collection>/<name>`. shuimo-ui components are globally registered in `main.ts`, not auto-imported.
 
 ### Backend (`src-tauri/src/`)
 
-- `lib.rs` - Main Tauri app entry point, registers all commands and plugins
-- `app_state.rs` - Application state management
-- `services/` - Business logic modules:
-  - `mac.rs` - MAC address operations
-  - `hotkey.rs` - Hotkey configuration and automation runner
-- `keyboard/mod.rs` - Directory reading and file copy operations for keyboard configs
-- `error.rs` - Custom error types
+- `lib.rs` - builds the app: panic hook, plugins, `AppState::initialize` in setup, all commands in `invoke_handler`
+- `main.rs` - also a CLI: `jx3-tools --restore-mac` restores the MAC headlessly (used by the scheduled task)
+- `app_state.rs` - `AppState { Arc<HotkeyService>, Arc<MacService> }`, accessed by commands via `tauri::State`
+- `commands/` - thin IPC layer (`mac.rs`, `keyboard.rs`, `hotkey.rs`)
+- `services/hotkey/` - `listener.rs` (Interception-driver global key listener → start/stop events), `keys.rs` (key simulation), `window.rs` (window enumeration / PostMessage), `config.rs` (validation + JSON persistence), `types.rs`
+- `services/mac/` - PowerShell-driven (scripts in `scripts.rs`): sets the `NetworkAddress` registry value and restarts the adapter; needs admin (errors map to `PermissionDenied`); auto-restore registers Windows Task Scheduler task `JX3ToolsMacRestore` (onlogon)
+- `services/keyboard.rs` - directory tree + copy. Encodes the JX3 userdata layout: tree depth 4 = a character dir (returned with `is_dir: false` to mark it selectable); `userpreferences` dirs are skipped; copy **deletes the target dir** before copying; symlinks are rejected/skipped
+- `error.rs` - `AppError` (thiserror) + `AppResult<T>`; user-facing messages are Chinese
+
+Backend persistent state lives in `dirs::config_dir()/jx3-tools/` (`hotkey_config.json`, `mac_state.json`, `mac_auto_restore.txt`).
+
+### Hotkey runtime model (the most intricate part)
+
+`HotkeyService` keeps a `Mutex<HotkeyInner>` (config + status + optional `Runner`). On init/save it (re)registers a `HotkeyListener` — a thread reading the Interception driver; the start/stop hotkeys are matched by scancode and dispatched to a **new thread** (never block the listener thread). The runner is a loop thread pressing the trigger key every `interval_ms` (20–60000ms validated), in `Global` mode (Interception simulate) or `Window` mode (PostMessage to a stored HWND, revalidated before start). Threads are stopped via `AtomicBool` + join **with 500ms timeout** (detach on timeout) — this pattern exists to fix real freeze bugs; keep it. Every status change is emitted to the frontend via `app.emit(HOTKEY_STATUS_EVENT)`.
+
+### Platform gating
+
+Hotkey and MAC mutation are Windows-only (`interception` + `windows` crates under `[target.'cfg(windows)'.dependencies]`). Non-Windows code paths are `#[cfg]`-gated stubs that return "仅支持 Windows" errors or empty lists — when touching gated code, make sure **both** cfg branches still compile (macOS dev machine builds the non-Windows side; CI builds the Windows side). Test real hotkey behavior on Windows only.
 
 ### Tauri Commands (IPC)
 
-Commands exposed to frontend via `tauri::command`:
-
-- MAC: `get_mac_address`, `change_mac_address`, `restore_mac_cmd`,
-  `get_auto_restore_setting`, `set_auto_restore_setting`
-- Keyboard: `list_directory_contents`, `cp_source_to_target`
-- Hotkey: `get_hotkey_config`, `save_hotkey_config`, `get_hotkey_status`, `stop_hotkey_task`
+- MAC: `get_mac_address`, `change_mac_address`, `restore_mac_cmd`, `get_auto_restore_setting`, `set_auto_restore_setting`
+- Keyboard: `list_directory_contents`, `cp_source_to_target`, `open_folder`
+- Hotkey: `get_hotkey_config`, `save_hotkey_config`, `get_hotkey_status`, `stop_hotkey_task`, `list_windows`, `check_window_valid`
 
 ## Code Style
 
-- ESLint uses @antfu/eslint-config with `1tbs` brace style
-- Max line length: 120 characters
-- `console.log` is allowed
-- UnoCSS for utility-first styling
+- @antfu/eslint-config with `1tbs` brace style (`curly` off); max line length 120 (URLs ignored); `console.log` allowed
+- UI text and Rust error messages are Chinese; code identifiers and comments mostly English
+- `AGENTS.md` is git-ignored and ESLint-ignored
+
+## Commits & Release
+
+Conventional Commits in English: `<type>(<scope>): <subject>` (e.g. `fix(hotkey): wrap KeyFilter in Filter enum`); body uses `-` bullets. Husky enforces this: `commit-msg` runs commitlint, `pre-commit` runs lint-staged (`eslint --fix`) — lint errors block the commit. Co-Author trailer pins the exact model, e.g. `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>`.
+
+`pnpm release` (bumpp, config in `.bumpp.config.cjs`) bumps `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`, commits (history uses `chore: release vX.Y.Z`) and tags `vX.Y.Z`; it does **not** push — run `git push --follow-tags`. Release builds are manual: the `release.yml` workflow (workflow_dispatch, takes an existing `v*` tag) builds the Windows NSIS installer (perMachine) via tauri-action. See `docs/RELEASE.md`.
