@@ -42,7 +42,7 @@ function formatTime(timestamp: number) {
       </template>
     </n-empty>
 
-    <div v-else class="flex-1 overflow-y-auto">
+    <div v-else class="flex-1 overflow-y-auto min-h-0">
       <div
         v-for="template in templates"
         :key="template.id"
