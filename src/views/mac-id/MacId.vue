@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import PageHeader from '@/components/layout/PageHeader.vue'
 import { useMac } from '@/composables/useMac'
 
 const {
@@ -17,115 +18,77 @@ const {
   setAutoRestore,
 } = useMac()
 
+const helpExpanded = ref(false)
+
 onMounted(() => {
   fetchMacAddress()
 })
 </script>
 
 <template>
-  <div class="mac-id-container">
-    <n-card title="MAC地址管理" class="mac-card">
-      <n-spin :show="loading">
-        <!-- 简化的表格 -->
-        <n-table :bordered="true" :single-line="false">
-          <n-tbody>
-            <n-tr>
-              <n-td>原始MAC地址</n-td>
-              <n-td>
-                <n-tag type="primary">
-                  {{ originalAddress }}
-                </n-tag>
-              </n-td>
-            </n-tr>
-            <n-tr>
-              <n-td>当前MAC地址</n-td>
-              <n-td>
-                <n-tag :type="isChanged ? 'warning' : 'success'">
-                  {{ currentAddress }}
-                </n-tag>
-              </n-td>
-            </n-tr>
-            <n-tr>
-              <n-td>状态</n-td>
-              <n-td>
-                <n-tag :type="isChanged ? 'warning' : 'success'">
-                  {{ isChanged ? '已修改' : '原始地址' }}
-                </n-tag>
-              </n-td>
-            </n-tr>
-            <n-tr>
-              <n-td>重启自动还原</n-td>
-              <n-td>
-                <div class="flex items-center gap-2">
-                  <n-switch v-model:value="autoRestoreEnabled" @update:value="setAutoRestore" />
-                  <span>{{ autoRestoreEnabled ? '开启' : '关闭' }}</span>
-                </div>
-              </n-td>
-            </n-tr>
-          </n-tbody>
-        </n-table>
+  <div class="p-5 h-full">
+    <PageHeader title="MAC地址" description="查看、随机修改与还原网卡物理地址" />
 
-        <!-- 操作按钮 -->
-        <div class="flex mt-4 gap-4">
-          <n-button type="primary" :loading="changing" @click="changeMacAddress">
-            随机修改MAC地址
-          </n-button>
-          <n-button :loading="restoring" @click="restoreMacAddress">
-            还原MAC地址
-          </n-button>
+    <n-alert v-if="error" type="error" :title="error" class="max-w-[430px] mx-auto mb-3" />
+
+    <n-spin :show="loading">
+      <div class="max-w-[430px] mx-auto">
+        <div class="paper-card p-5 text-center">
+          <div class="text-[10px] tracking-[2px]" style="color: var(--ink-muted)">
+            当前地址
+          </div>
+          <div class="text-mono text-[26px] tracking-[3px] mt-2" style="color: var(--ink)">
+            {{ currentAddress || '——' }}
+          </div>
+          <div class="mt-2.5">
+            <n-tag :type="isChanged ? 'warning' : 'success'" size="small">
+              {{ isChanged ? '已修改' : '原始地址' }}
+            </n-tag>
+          </div>
+          <div class="text-[10px] mt-3" style="color: var(--ink-muted)">
+            原始地址 <span class="text-mono tracking-wider ml-1">{{ originalAddress || '——' }}</span>
+          </div>
+          <div class="flex gap-2.5 justify-center mt-4.5">
+            <n-button type="primary" :loading="changing" @click="changeMacAddress">
+              随机修改
+            </n-button>
+            <n-button :loading="restoring" @click="restoreMacAddress">
+              还原地址
+            </n-button>
+          </div>
         </div>
 
-        <!-- 错误信息 -->
-        <n-alert v-if="error" type="error" :title="error" class="mt-4" />
+        <div class="paper-card px-4 py-3 mt-3 flex items-center justify-between">
+          <div>
+            <div class="text-xs" style="color: var(--ink)">
+              重启自动还原
+            </div>
+            <div class="text-[10px] mt-0.5" style="color: var(--ink-muted)">
+              开机时自动恢复原始地址（计划任务）
+            </div>
+          </div>
+          <n-switch v-model:value="autoRestoreEnabled" @update:value="setAutoRestore" />
+        </div>
 
-        <!-- 帮助信息 -->
-        <n-collapse class="mt-4">
-          <n-collapse-item title="MAC地址说明" name="help">
-            <n-space vertical>
-              <div>
-                <strong>什么是MAC地址？</strong>
-                <p>MAC地址是网络设备的唯一标识符，由48位二进制数字组成，通常表示为12个十六进制数字。</p>
-              </div>
-              <div>
-                <strong>为什么要修改MAC地址？</strong>
-                <p>修改MAC地址可用于增强隐私保护、绕过基于MAC地址的网络访问控制等。请确保您的操作符合相关法律法规。</p>
-              </div>
-            </n-space>
-          </n-collapse-item>
-        </n-collapse>
-      </n-spin>
-    </n-card>
+        <div class="text-center mt-3 text-[10px]" style="color: var(--ink-muted)">
+          什么是 MAC 地址？为什么要修改？
+          <a class="cursor-pointer" style="color: var(--indigo)" @click="helpExpanded = !helpExpanded">
+            {{ helpExpanded ? '收起说明 ▴' : '展开说明 ▾' }}
+          </a>
+        </div>
+        <div
+          v-if="helpExpanded"
+          class="paper-card p-4 mt-2 text-xs leading-relaxed"
+          style="color: var(--ink-secondary)"
+        >
+          <p><b>什么是MAC地址？</b></p>
+          <p>MAC地址是网络设备的唯一标识符，由48位二进制数字组成，通常表示为12个十六进制数字。</p>
+          <p class="mt-2">
+            <b>为什么要修改MAC地址？</b>
+          </p>
+          <p>修改MAC地址可用于增强隐私保护、绕过基于MAC地址的网络访问控制等。请确保您的操作符合相关法律法规。</p>
+        </div>
+      </div>
+    </n-spin>
   </div>
 </template>
-
-<style scoped>
-.mac-id-container {
-  padding: 20px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.mac-card {
-  width: 100%;
-}
-
-.mt-4 {
-  margin-top: 16px;
-}
-
-.flex {
-  display: flex;
-}
-
-.items-center {
-  align-items: center;
-}
-
-.gap-2 {
-  gap: 8px;
-}
-
-.gap-4 {
-  gap: 16px;
-}
-</style>
