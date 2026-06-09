@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { darkTheme, NConfigProvider, NMessageProvider, useOsTheme } from 'naive-ui'
+import { NConfigProvider, NMessageProvider } from 'naive-ui'
+import { computed } from 'vue'
+import { useTheme } from '@/composables/useTheme'
+import { darkOverrides, lightOverrides } from '@/theme/naive'
 
-// 获取系统主题
-const osTheme = useOsTheme()
+const { naiveTheme, isDark } = useTheme()
+const overrides = computed(() => (isDark.value ? darkOverrides : lightOverrides))
 </script>
 
 <template>
-  <m-rice-paper class="h-screen w-full">
-    <NConfigProvider :theme="osTheme === 'dark' ? darkTheme : null">
-      <NMessageProvider>
-        <router-view />
-      </NMessageProvider>
-    </NConfigProvider>
-  </m-rice-paper>
+  <NConfigProvider :theme="naiveTheme" :theme-overrides="overrides" class="h-screen w-full">
+    <NMessageProvider>
+      <router-view />
+    </NMessageProvider>
+  </NConfigProvider>
 </template>
