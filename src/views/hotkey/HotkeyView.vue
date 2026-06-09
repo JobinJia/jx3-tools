@@ -3,6 +3,7 @@ import type { HotkeyConfig, WindowInfo } from '@/types'
 import { useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import PageHeader from '@/components/layout/PageHeader.vue'
 import { hotkeyService } from '@/services'
 import { useHotkeyStore } from '@/stores/hotkey'
 
@@ -34,6 +35,7 @@ const isWindowMode = computed(() => formValue.keyMode === 'window')
 const triggerKeyFocused = ref(false)
 const startHotkeyFocused = ref(false)
 const stopHotkeyFocused = ref(false)
+const helpExpanded = ref(false)
 
 watch(
   config,
@@ -45,12 +47,12 @@ watch(
 )
 
 const statusText = computed(() => (status.value.running ? '运行中' : '已停止'))
-const statusType = computed(() => {
+const statusClass = computed(() => {
   if (status.value.running)
-    return 'success'
+    return 'running'
   if (!status.value.registered)
-    return 'warning'
-  return 'default'
+    return 'warn'
+  return 'idle'
 })
 
 // 将 KeyboardEvent.key 转换为按键名称
@@ -265,46 +267,76 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="hotkey-container">
-    <n-card title="自动按键设置" :bordered="false">
-      <n-spin :show="loading">
-        <n-form
-          v-if="config" label-placement="left" :label-width="120" :model="formValue" size="medium"
-          class="hotkey-form"
-        >
-          <n-form-item label="按键模式">
-            <n-space align="center">
-              <n-switch
-                :value="formValue.keyMode === 'window'"
+  <div class="p-5 h-full">
+    <PageHeader title="按键" description="全局热键控制的自动按键">
+      <template #extra>
+        <div class="status-badge" :class="statusClass">
+          <span class="dot" />
+          <span>{{ statusText }}</span>
+          <span class="hint">{{ formValue.startHotkey || '—' }} 开始 · {{ formValue.stopHotkey || '—' }} 停止</span>
+        </div>
+      </template>
+    </PageHeader>
+
+    <n-alert v-if="status.lastError" type="error" title="错误" class="max-w-[480px] mx-auto mb-3">
+      {{ status.lastError }}
+    </n-alert>
+
+    <n-spin :show="loading">
+      <div v-if="config" class="max-w-[480px] mx-auto">
+        <div class="paper-card px-4.5 py-4">
+          <div class="section-label">
+            按键行为
+          </div>
+
+          <div class="form-row">
+            <span>按键模式</span>
+            <div class="flex items-center gap-2">
+              <n-radio-group
+                :value="formValue.keyMode"
+                size="small"
                 :disabled="!isWindows"
-                @update:value="(val: boolean) => formValue.keyMode = val ? 'window' : 'global'"
+                @update:value="(val: string) => formValue.keyMode = val as 'global' | 'window'"
               >
-                <template #checked>
-                  窗口
-                </template>
-                <template #unchecked>
+                <n-radio-button value="global">
                   全局
+                </n-radio-button>
+                <n-radio-button value="window">
+                  窗口
+                </n-radio-button>
+              </n-radio-group>
+              <n-popover trigger="hover" placement="top" style="max-width: 280px">
+                <template #trigger>
+                  <span class="info-icon">ⓘ</span>
                 </template>
-              </n-switch>
-              <n-text v-if="!isWindows" depth="3">
-                (窗口模式仅支持 Windows)
+                <p>窗口模式：按键发送到指定窗口，窗口不在前台也能接收。</p>
+                <p>部分游戏或应用可能屏蔽此方式的按键。</p>
+                <p>目标窗口关闭后任务会自动停止。仅支持 Windows。</p>
+              </n-popover>
+              <n-text v-if="!isWindows" depth="3" class="text-xs">
+                (仅 Windows)
               </n-text>
-            </n-space>
-          </n-form-item>
-          <n-form-item v-if="isWindowMode && isWindows" label="目标窗口">
-            <n-space vertical style="width: 100%">
+            </div>
+          </div>
+
+          <div v-if="isWindowMode && isWindows" class="form-row !items-start">
+            <span class="pt-1">目标窗口</span>
+            <div class="flex-1 ml-4">
               <n-input-group>
                 <n-input
                   v-model:value="windowFilter"
-                  placeholder="输入关键词过滤窗口..."
+                  size="small"
+                  placeholder="关键词过滤…"
                   clearable
                   @update:value="fetchWindows"
                 />
-                <n-button :loading="windowLoading" @click="fetchWindows">
+                <n-button size="small" :loading="windowLoading" @click="fetchWindows">
                   刷新
                 </n-button>
               </n-input-group>
               <n-select
+                class="mt-2"
+                size="small"
                 :value="formValue.targetWindow?.hwnd ?? null"
                 :options="windowOptions"
                 placeholder="选择目标窗口"
@@ -313,95 +345,189 @@ onUnmounted(() => {
                 :loading="windowLoading"
                 @update:value="handleWindowSelect"
               />
-              <n-text v-if="formValue.targetWindow" depth="3">
-                已选择: {{ formValue.targetWindow.title }}
-              </n-text>
-            </n-space>
-          </n-form-item>
-          <n-form-item label="触发按键">
-            <n-input
-              :value="triggerKeyFocused ? '请按下按键...' : formValue.triggerKey"
-              :placeholder="triggerKeyFocused ? '请按下按键...' : '点击后按下按键'"
+            </div>
+          </div>
+
+          <div class="form-row">
+            <span>触发按键</span>
+            <input
+              class="keycap-input"
               readonly
-              :status="triggerKeyFocused ? 'warning' : undefined"
+              :value="triggerKeyFocused ? '' : formValue.triggerKey"
+              :placeholder="triggerKeyFocused ? '请按下按键…' : '点击录入'"
               @focus="triggerKeyFocused = true"
               @blur="triggerKeyFocused = false"
               @keydown="handleTriggerKeyDown"
-            />
-          </n-form-item>
-          <n-form-item label="触发频率 (毫秒)">
-            <n-input-number v-model:value="formValue.intervalMs" :min="20" :max="60000" :step="50" />
-          </n-form-item>
-          <n-form-item label="开始热键">
-            <n-input
-              :value="startHotkeyFocused ? '请按下按键...' : formValue.startHotkey"
-              :placeholder="startHotkeyFocused ? '请按下按键...' : '点击后按下按键(支持组合键)'"
+            >
+          </div>
+
+          <div class="form-row">
+            <span>触发频率</span>
+            <n-input-number
+              v-model:value="formValue.intervalMs"
+              size="small"
+              :min="20"
+              :max="60000"
+              :step="50"
+            >
+              <template #suffix>
+                毫秒
+              </template>
+            </n-input-number>
+          </div>
+
+          <div class="card-divider" />
+          <div class="section-label">
+            控制热键 <span class="font-normal">（软件后台时也生效）</span>
+          </div>
+
+          <div class="form-row">
+            <span>开始热键</span>
+            <input
+              class="keycap-input"
               readonly
-              :status="startHotkeyFocused ? 'warning' : undefined"
+              :value="startHotkeyFocused ? '' : formValue.startHotkey"
+              :placeholder="startHotkeyFocused ? '请按下按键…' : '点击录入（支持组合键）'"
               @focus="startHotkeyFocused = true"
               @blur="startHotkeyFocused = false"
               @keydown="handleStartHotkeyKeyDown"
-            />
-          </n-form-item>
-          <n-form-item label="结束热键">
-            <n-input
-              :value="stopHotkeyFocused ? '请按下按键...' : formValue.stopHotkey"
-              :placeholder="stopHotkeyFocused ? '请按下按键...' : '点击后按下按键(支持组合键)'"
+            >
+          </div>
+
+          <div class="form-row">
+            <span>结束热键</span>
+            <input
+              class="keycap-input"
               readonly
-              :status="stopHotkeyFocused ? 'warning' : undefined"
+              :value="stopHotkeyFocused ? '' : formValue.stopHotkey"
+              :placeholder="stopHotkeyFocused ? '请按下按键…' : '点击录入（支持组合键）'"
               @focus="stopHotkeyFocused = true"
               @blur="stopHotkeyFocused = false"
               @keydown="handleStopHotkeyKeyDown"
-            />
-          </n-form-item>
-          <n-form-item>
-            <n-space>
-              <n-button type="primary" :loading="saving" @click="saveConfig">
-                保存配置
-              </n-button>
-              <n-button :disabled="!status.running" @click="hotkeyStore.stopTask">
-                停止任务
-              </n-button>
-              <n-tag :type="statusType">
-                当前状态：{{ statusText }}
-              </n-tag>
-            </n-space>
-          </n-form-item>
-        </n-form>
-        <n-alert v-if="status.lastError" type="error" title="错误" class="mt-3" :bordered="false">
-          {{ status.lastError }}
-        </n-alert>
-        <n-alert v-if="isWindowMode && isWindows" type="warning" class="mt-3" :bordered="false">
-          <p><b>窗口模式说明：</b></p>
-          <p>1. 按键将发送到指定窗口，即使窗口不在前台也能接收。</p>
-          <p>2. 部分游戏或应用可能会屏蔽此方式的按键。</p>
-          <p>3. 如果目标窗口关闭，任务会自动停止。</p>
-        </n-alert>
-        <n-alert type="info" class="mt-3" :bordered="false">
+            >
+          </div>
+
+          <div class="flex gap-2.5 mt-4 items-center">
+            <n-button type="primary" :loading="saving" @click="saveConfig">
+              保存配置
+            </n-button>
+            <n-button :disabled="!status.running" @click="hotkeyStore.stopTask">
+              停止任务
+            </n-button>
+          </div>
+        </div>
+
+        <div class="text-center mt-3 text-[10px]" style="color: var(--ink-muted)">
+          点击热键输入框后按下键盘即可录入 · macOS 需授权辅助功能
+          <a class="cursor-pointer" style="color: var(--indigo)" @click="helpExpanded = !helpExpanded">
+            {{ helpExpanded ? '收起 ▴' : '更多说明 ▾' }}
+          </a>
+        </div>
+        <div
+          v-if="helpExpanded"
+          class="paper-card p-4 mt-2 text-xs leading-relaxed"
+          style="color: var(--ink-secondary)"
+        >
           <p>
             1. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b> / <b>{{ formValue.stopHotkey || '结束热键' }}</b>
             控制任务（Windows 与 macOS 均支持）。
           </p>
-          <p>2. 软件最小化或在后台时同样生效，请避免与系统或其他软件热键冲突；macOS 需在"系统设置 → 隐私与安全性 → 辅助功能"中允许应用控制键盘。</p>
-          <p>3. 点击输入框后按下键盘按键即可设置；支持字母、数字、功能键、小键盘、方向键、修饰键、媒体键等。</p>
-        </n-alert>
-      </n-spin>
-    </n-card>
+          <p class="mt-1">
+            2. 软件最小化或在后台时同样生效，请避免与系统或其他软件热键冲突；macOS 需在「系统设置 → 隐私与安全性 → 辅助功能」中允许应用控制键盘。
+          </p>
+          <p class="mt-1">
+            3. 支持字母、数字、功能键、小键盘、方向键、修饰键、媒体键等。
+          </p>
+        </div>
+      </div>
+    </n-spin>
   </div>
 </template>
 
 <style scoped>
-.hotkey-container {
-  padding: 20px;
-  height: 100%;
-  box-sizing: border-box;
+.section-label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
 }
 
-.hotkey-form {
-  max-width: 520px;
+.form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--ink);
 }
 
-.mt-3 {
-  margin-top: 12px;
+.card-divider {
+  height: 1px;
+  background: var(--line-soft);
+  margin: 10px 0;
+}
+
+.info-icon {
+  color: var(--ink-muted);
+  font-size: 12px;
+  cursor: help;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  color: var(--ink-secondary);
+  background: var(--paper-card);
+}
+
+.status-badge .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+}
+
+.status-badge .hint {
+  font-size: 10px;
+  color: var(--ink-muted);
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}
+
+.status-badge.running {
+  color: var(--bamboo);
+  border-color: var(--bamboo);
+  background: var(--bamboo-tint);
+}
+
+.status-badge.running .dot {
+  background: var(--bamboo);
+  animation: breath 1.6s ease-in-out infinite;
+}
+
+.status-badge.warn {
+  color: var(--ochre);
+  border-color: var(--ochre);
+  background: var(--ochre-tint);
+}
+
+.status-badge.warn .dot {
+  background: var(--ochre);
+}
+
+@keyframes breath {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
 }
 </style>
