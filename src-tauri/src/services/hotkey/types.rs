@@ -60,6 +60,8 @@ pub struct HotkeyStatus {
     pub running: bool,
     pub registered: bool,
     pub last_error: Option<String>,
+    /// 按键驱动（Interception）是否就绪；动态查询填充，不持久化
+    pub driver_ready: bool,
 }
 
 /// Internal state of the hotkey service

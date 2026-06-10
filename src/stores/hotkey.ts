@@ -8,7 +8,7 @@ const STATUS_EVENT = 'hotkey://status'
 
 export const useHotkeyStore = defineStore('hotkey', () => {
   const config = ref<HotkeyConfig | null>(null)
-  const status = ref<HotkeyStatus>({ running: false, registered: false, lastError: null })
+  const status = ref<HotkeyStatus>({ running: false, registered: false, lastError: null, driverReady: false })
   const loading = ref(false)
   const saving = ref(false)
   let stopListener: null | (() => void) = null

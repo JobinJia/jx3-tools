@@ -183,15 +183,22 @@ impl HotkeyService {
         }
     }
 
-    /// Get the current status
+    /// Get the current status (with live driver_ready)
     pub fn get_status(&self) -> HotkeyStatus {
-        match self.inner.lock() {
+        self.snapshot_status()
+    }
+
+    /// Clone the stored status and fill the live `driver_ready` flag
+    fn snapshot_status(&self) -> HotkeyStatus {
+        let mut status = match self.inner.lock() {
             Ok(inner) => inner.status.clone(),
             Err(poisoned) => {
                 log::warn!("热键状态锁已损坏，使用损坏数据: {}", poisoned);
                 poisoned.into_inner().status.clone()
             }
-        }
+        };
+        status.driver_ready = driver_ready();
+        status
     }
 
     /// Save a new config and re-register hotkeys
@@ -273,6 +280,13 @@ impl HotkeyService {
     /// Start the automation runner
     #[cfg(target_os = "windows")]
     pub fn start_runner(self: &Arc<Self>, app: &AppHandle) -> AppResult<()> {
+        // 驱动未就绪直接拒绝：否则会空转一个无法注入按键的 runner
+        if keys::driver_status() != keys::DriverStatus::Ready {
+            return Err(AppError::Hotkey(
+                "按键驱动未就绪，请安装 Interception 驱动并重启电脑后重试".into(),
+            ));
+        }
+
         // First, stop any existing runner to prevent multiple runners
         let existing_runner = {
             let mut guard = self
@@ -376,13 +390,7 @@ impl HotkeyService {
 
     /// Emit current status to frontend
     fn emit_status(&self, app: &AppHandle) {
-        let status = match self.inner.lock() {
-            Ok(inner) => inner.status.clone(),
-            Err(poisoned) => {
-                log::warn!("热键状态锁已损坏，使用损坏数据广播: {}", poisoned);
-                poisoned.into_inner().status.clone()
-            }
-        };
+        let status = self.snapshot_status();
         if let Err(err) = app.emit(HOTKEY_STATUS_EVENT, status) {
             log::warn!("广播热键状态失败: {}", err);
         }
@@ -397,6 +405,18 @@ impl HotkeyService {
             updater(&mut guard.status);
         }
         self.emit_status(app);
+    }
+}
+
+/// 当前按键驱动是否就绪（动态查询，用于填充 HotkeyStatus.driver_ready）
+fn driver_ready() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        keys::driver_status() == keys::DriverStatus::Ready
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
     }
 }
 

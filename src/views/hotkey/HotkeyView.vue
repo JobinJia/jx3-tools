@@ -61,6 +61,9 @@ const statusClass = computed(() => {
   return 'idle'
 })
 
+// 按键驱动未就绪（仅 Windows 有意义）：需引导用户安装驱动并重启
+const driverNotReady = computed(() => isWindows.value && !status.value.driverReady)
+
 // 将 KeyboardEvent.key 转换为按键名称
 function keyEventToKeyName(e: KeyboardEvent): string {
   const key = e.key
@@ -305,6 +308,16 @@ onUnmounted(() => {
       </template>
     </PageHeader>
 
+    <n-alert
+      v-if="driverNotReady"
+      type="warning"
+      title="按键驱动未就绪"
+      class="mx-auto mb-3 max-w-[480px]"
+    >
+      剑网三的反作弊会拦截普通模拟按键，本功能需要 Interception 驱动级模拟。
+      若你刚安装过本软件，请<b>重启电脑</b>后再试；如从未安装，请重新运行安装包。
+    </n-alert>
+
     <n-alert v-if="status.lastError" type="error" title="错误" class="mx-auto mb-3 max-w-[480px]">
       {{ status.lastError }}
     </n-alert>
@@ -456,11 +469,12 @@ onUnmounted(() => {
           style="color: var(--ink-secondary)"
         >
           <p>
-            1. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b> / <b>{{ formValue.stopHotkey || '结束热键' }}</b>
-            控制任务（Windows 与 macOS 均支持）。
+            1. 按键模拟需要 <b>Interception 驱动</b>（随安装包自动安装，装后需重启电脑一次）。
+            剑网三反作弊会拦截普通模拟按键，驱动级注入才能生效。
           </p>
           <p class="mt-1">
-            2. 软件最小化或在后台时同样生效；若热键被系统或其他软件占用，保存时会注册失败并提示，请换用其他按键。
+            2. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b> / <b>{{ formValue.stopHotkey || '结束热键' }}</b>
+            控制任务；软件最小化或在后台时同样生效。若热键被系统或其他软件占用，保存时会注册失败并提示，请换用其他按键。
           </p>
           <p class="mt-1">
             3. 开始/结束热键支持组合键（如 Ctrl+Alt+F5）；触发按键支持字母、数字、F1-F12、方向键、小键盘等，且不能与开始/结束热键相同。

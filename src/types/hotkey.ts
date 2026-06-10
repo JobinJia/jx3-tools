@@ -33,4 +33,6 @@ export interface HotkeyStatus {
   running: boolean
   registered: boolean
   lastError: string | null
+  /** 按键驱动（Interception）是否就绪 */
+  driverReady: boolean
 }

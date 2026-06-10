@@ -8,7 +8,7 @@ JX3-Tools is a Tauri v2 desktop application for the game JX3 (剑网三), primar
 
 - **Keyboard remapping (改键)** - Copy keyboard config directories between game accounts/characters inside the JX3 `userdata` folder
 - **MAC address management (MAC地址)** - View/randomize/restore the NIC MAC address via PowerShell + registry, with optional auto-restore on reboot
-- **Hotkey automation (按键)** - Global start/stop hotkeys (tauri-plugin-global-shortcut) that toggle an auto key-press loop, either globally (SendInput scancodes) or sent to a specific window (PostMessage)
+- **Hotkey automation (按键)** - Global start/stop hotkeys (tauri-plugin-global-shortcut) that toggle an auto key-press loop, either globally (Interception kernel-driver injection — required because JX3's anti-cheat filters user-mode synthesized input) or sent to a specific window (PostMessage)
 
 ## Tech Stack
 
@@ -60,7 +60,7 @@ Components and icons are auto-imported: `unplugin-vue-components` (with `NaiveUi
 - `build.rs` + `jx3-tools.manifest` - embeds a custom Windows manifest that requests `requireAdministrator` (UAC prompt every launch). Required for MAC mutation **and** so global key simulation works against JX3's elevated anti-cheat (Windows UIPI drops synthesized input from a lower-integrity process to a higher-integrity foreground window). The manifest fully replaces Tauri's default, so it must also carry DPI awareness, supportedOS, and Common-Controls v6 (the dialog plugin needs it)
 - `app_state.rs` - `AppState { Arc<HotkeyService>, Arc<MacService> }`, accessed by commands via `tauri::State`
 - `commands/` - thin IPC layer (`mac.rs`, `keyboard.rs`, `hotkey.rs`)
-- `services/hotkey/` - `keymap.rs` (key label → scancode/VK/shortcut-string mapping, the single source of truth), `keys.rs` (SendInput scancode simulation, extended-key aware), `window.rs` (window enumeration / PostMessage), `config.rs` (validation + JSON persistence), `types.rs`. **Never add a dependency that links a non-system DLL** (the old Interception-based listener dynamically linked `interception.dll` and crashed the app at load time on machines without it)
+- `services/hotkey/` - `keymap.rs` (key label → scancode/VK/shortcut-string mapping, the single source of truth), `keys.rs` (Interception kernel-driver injection + `driver_status()` detection), `window.rs` (window enumeration / PostMessage), `config.rs` (validation + JSON persistence), `types.rs`. **Interception links `interception.dll`** — to avoid the old load-time crash on driver-less machines: the DLL is bundled (`resources/interception/`, copied next to the exe by the NSIS hook), delay-loaded (`/DELAYLOAD` in `build.rs`), and `keys.rs` probes `LoadLibraryW` before touching any delay-load symbol (SEH from a missing DLL can't be caught by `catch_unwind`). The Interception **driver** itself is installed by the NSIS `installerHooks` (`windows/hooks.nsh` → `install-interception.exe /install`, needs a reboot)
 - `services/mac/` - PowerShell-driven (`scripts/*.ps1` assembled by `scripts.rs`): writes the `NetworkAddress` registry override, restarts the adapter, then **reads the MAC back to verify** the driver accepted it (rolls back + errors if not — many drivers, esp. wireless, silently ignore the override); restore clears overrides on all physical adapters (falls back to `PermanentAddress`); needs admin (errors map to `PermissionDenied`); no local state files — the registry and the Task Scheduler task `JX3ToolsMacRestore` (onlogon, `/rl HIGHEST`) are the source of truth
 - `services/keyboard.rs` - directory tree + copy. Encodes the JX3 userdata layout: tree depth 4 = a character dir (returned with `is_dir: false` to mark it selectable); `userpreferences` dirs are skipped; copy **deletes the target dir** before copying; symlinks are rejected/skipped
 - `error.rs` - `AppError` (thiserror) + `AppResult<T>`; user-facing messages are Chinese
@@ -73,7 +73,7 @@ Backend persistent state lives in `dirs::config_dir()/jx3-tools/` (`hotkey_confi
 
 ### Platform gating
 
-Key simulation and MAC mutation are Windows-only (`windows` crate under `[target.'cfg(windows)'.dependencies]`); hotkey listening itself is cross-platform. Non-Windows code paths are `#[cfg]`-gated stubs that return "仅支持 Windows" errors or empty lists — when touching gated code, make sure **both** cfg branches still compile (macOS dev machine builds the non-Windows side; CI builds the Windows side). Test real hotkey behavior on Windows only.
+Key simulation and MAC mutation are Windows-only (`windows` + `interception` crates under `[target.'cfg(windows)'.dependencies]`); hotkey listening itself is cross-platform. **Dev note:** running the bundled app aside, a bare `target/*/app.exe` needs `interception.dll` copied next to it manually (the NSIS hook only runs for installed builds). Non-Windows code paths are `#[cfg]`-gated stubs that return "仅支持 Windows" errors or empty lists — when touching gated code, make sure **both** cfg branches still compile (macOS dev machine builds the non-Windows side; CI builds the Windows side). Test real hotkey behavior on Windows only.
 
 ### Tauri Commands (IPC)
 
