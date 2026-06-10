@@ -1,8 +1,11 @@
 name: Windows Build
 
-# 手动触发的测试构建：产出 NSIS 安装包 + 绿色 exe 作为 artifact，不创建 release
+# 测试构建：产出 NSIS 安装包 + 绿色 exe 作为 artifact，不创建 release
+# workflow_dispatch 需要文件先进默认分支才能手动触发，所以另加分支 push 触发
 on:
   workflow_dispatch:
+  push:
+    branches: [feat/ui-redesign]
 
 jobs:
   build-windows:
