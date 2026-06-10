@@ -1,4 +1,4 @@
-import type { CopyParams, FileEntry } from '@/types'
+import type { CopyParams, FileEntry, PluginSyncReport } from '@/types'
 import { invoke } from '@tauri-apps/api/core'
 
 export const keyboardService = {
@@ -14,6 +14,13 @@ export const keyboardService = {
    */
   async copySourceToTarget(params: CopyParams): Promise<boolean> {
     return invoke<boolean>('cp_source_to_target', { params })
+  },
+
+  /**
+   * Sync plugin config (interface/*#data) from source role to target role
+   */
+  async syncPluginConfig(params: CopyParams): Promise<PluginSyncReport> {
+    return invoke<PluginSyncReport>('sync_plugin_config', { params })
   },
 
   /**

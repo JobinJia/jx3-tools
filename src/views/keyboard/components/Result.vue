@@ -7,7 +7,7 @@ const props = defineProps<{
   userSelect: UserSelect
 }>()
 
-const { copyKeyboardConfig, copyLoading } = useKeyboard()
+const { copyKeyboardConfig, copyLoading, syncPluginEnabled } = useKeyboard()
 const { recentOps, addRecentOp, formatOpTime } = useRecentOps()
 
 async function handleCopy() {
@@ -61,6 +61,15 @@ async function handleCopy() {
           </div>
         </div>
       </n-popover>
+
+      <n-tooltip trigger="hover" placement="top" style="max-width: 300px">
+        <template #trigger>
+          <n-checkbox v-model:checked="syncPluginEnabled" size="small">
+            <span class="text-xs">同步插件配置</span>
+          </n-checkbox>
+        </template>
+        同时把 interface 下茗伊 / 枫影等插件的角色配置从源角色同步到目标角色（需关闭游戏；目标角色需用插件登录过一次）
+      </n-tooltip>
 
       <button
         class="copy-btn"

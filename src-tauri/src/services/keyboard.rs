@@ -62,8 +62,21 @@ impl KeyboardService {
             )));
         }
 
-        // 安全交换式复制：先把源完整复制到同级临时目录，成功后再与旧目标交换。
-        // 任何一步失败，目标角色原有键位都保持完好（不再先删后拷）。
+        Self::swap_replace_dir(&source, &target)?;
+
+        log::info!(
+            "键位复制完成: {} -> {}",
+            source.display(),
+            target.display()
+        );
+
+        Ok(true)
+    }
+
+    /// 安全交换式复制：先把源完整复制到同级临时目录，成功后再与旧目标交换。
+    /// 任何一步失败，目标原有内容都保持完好（不先删后拷）。
+    /// 键位复制与插件配置同步共用此语义。
+    pub(crate) fn swap_replace_dir(source: &Path, target: &Path) -> AppResult<()> {
         let parent = target
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -83,37 +96,30 @@ impl KeyboardService {
         let _ = fs::remove_dir_all(&tmp);
         let _ = fs::remove_dir_all(&bak);
 
-        if let Err(e) = Self::copy_dir_all(&source, &tmp) {
+        if let Err(e) = Self::copy_dir_all(source, &tmp) {
             let _ = fs::remove_dir_all(&tmp);
-            return Err(AppError::Keyboard(format!("复制键位失败（目标未受影响）: {e}")));
+            return Err(AppError::Keyboard(format!("复制失败（目标未受影响）: {e}")));
         }
 
         // 交换：旧目标先挪到备份位，再把新内容就位
         if target.exists() {
-            fs::rename(&target, &bak).map_err(|e| {
+            fs::rename(target, &bak).map_err(|e| {
                 let _ = fs::remove_dir_all(&tmp);
                 AppError::Keyboard(format!(
                     "无法移开旧的目标目录（可能被游戏占用，请关闭游戏后重试）: {e}"
                 ))
             })?;
         }
-        if let Err(e) = fs::rename(&tmp, &target) {
+        if let Err(e) = fs::rename(&tmp, target) {
             // 就位失败：恢复旧目标
             if bak.exists() {
-                let _ = fs::rename(&bak, &target);
+                let _ = fs::rename(&bak, target);
             }
             let _ = fs::remove_dir_all(&tmp);
-            return Err(AppError::Keyboard(format!("写入目标目录失败（已恢复原键位）: {e}")));
+            return Err(AppError::Keyboard(format!("写入目标目录失败（已恢复原内容）: {e}")));
         }
         let _ = fs::remove_dir_all(&bak);
-
-        log::info!(
-            "键位复制完成: {} -> {}",
-            source.display(),
-            target.display()
-        );
-
-        Ok(true)
+        Ok(())
     }
 
     /// Canonicalize path and handle errors

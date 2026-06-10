@@ -29,6 +29,9 @@ pub enum AppError {
     #[error("键盘配置错误: {0}")]
     Keyboard(String),
 
+    #[error("插件配置错误: {0}")]
+    Plugin(String),
+
     #[error("验证失败: {field} - {message}")]
     Validation { field: String, message: String },
 
@@ -78,6 +81,7 @@ impl AppError {
             AppError::Hotkey(_) => "HOTKEY_ERROR",
             AppError::Config(_) => "CONFIG_ERROR",
             AppError::Keyboard(_) => "KEYBOARD_ERROR",
+            AppError::Plugin(_) => "PLUGIN_ERROR",
             AppError::Validation { .. } => "VALIDATION_ERROR",
             AppError::PlatformNotSupported(_) => "PLATFORM_NOT_SUPPORTED",
             AppError::PermissionDenied(_) => "PERMISSION_DENIED",

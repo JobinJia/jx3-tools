@@ -5,6 +5,7 @@ use tauri::command;
 
 use crate::error::{validate_path_not_empty, AppError, AppResult};
 use crate::services::keyboard::{CopyParams, FileEntry, KeyboardService};
+use crate::services::plugin_data::{PluginDataService, PluginSyncReport};
 
 /// List directory contents for keyboard configuration
 ///
@@ -31,6 +32,23 @@ pub async fn cp_source_to_target(params: CopyParams) -> AppResult<bool> {
     tauri::async_runtime::spawn_blocking(move || KeyboardService::copy_source_to_target(&params))
         .await
         .map_err(|e| AppError::Keyboard(format!("后台任务执行失败: {e}")))?
+}
+
+/// Sync plugin config (interface/*#data) from source role to target role
+///
+/// 与键位复制同一套参数（userdata 下的源/目标角色目录路径）
+#[command]
+pub async fn sync_plugin_config(params: CopyParams) -> AppResult<PluginSyncReport> {
+    log::debug!(
+        "Command: sync_plugin_config({} -> {})",
+        params.source_path,
+        params.target_path
+    );
+    validate_path_not_empty(&params.source_path, "source_path")?;
+    validate_path_not_empty(&params.target_path, "target_path")?;
+    tauri::async_runtime::spawn_blocking(move || PluginDataService::sync_plugin_config(&params))
+        .await
+        .map_err(|e| AppError::Plugin(format!("后台任务执行失败: {e}")))?
 }
 
 /// Open folder in system file explorer

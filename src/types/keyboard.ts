@@ -21,6 +21,18 @@ export interface UserSelect {
   targetPath: string
 }
 
+/** 插件配置同步时跳过的数据目录及原因 */
+export interface PluginSyncSkippedItem {
+  dir: string
+  reason: string
+}
+
+/** 插件配置同步结果（sync_plugin_config 返回值） */
+export interface PluginSyncReport {
+  synced: string[]
+  skipped: PluginSyncSkippedItem[]
+}
+
 /** 常用键位模板 */
 export interface KeyboardTemplate {
   id: string
