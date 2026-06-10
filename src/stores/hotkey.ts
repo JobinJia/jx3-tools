@@ -8,9 +8,17 @@ const STATUS_EVENT = 'hotkey://status'
 
 export const useHotkeyStore = defineStore('hotkey', () => {
   const config = ref<HotkeyConfig | null>(null)
-  const status = ref<HotkeyStatus>({ running: false, registered: false, lastError: null, driverReady: false })
+  const status = ref<HotkeyStatus>({
+    running: false,
+    registered: false,
+    lastError: null,
+    driverReady: false,
+    driverState: 'notInstalled',
+    mouseFilterPresent: false,
+  })
   const loading = ref(false)
   const saving = ref(false)
+  const driverBusy = ref(false)
   let stopListener: null | (() => void) = null
 
   async function ensureListener() {
@@ -52,6 +60,33 @@ export const useHotkeyStore = defineStore('hotkey', () => {
     await hotkeyService.stopTask()
   }
 
+  async function installDriver() {
+    driverBusy.value = true
+    try {
+      status.value = await hotkeyService.installDriver()
+    } finally {
+      driverBusy.value = false
+    }
+  }
+
+  async function uninstallDriver() {
+    driverBusy.value = true
+    try {
+      status.value = await hotkeyService.uninstallDriver()
+    } finally {
+      driverBusy.value = false
+    }
+  }
+
+  async function removeMouseFilter() {
+    driverBusy.value = true
+    try {
+      status.value = await hotkeyService.removeMouseFilter()
+    } finally {
+      driverBusy.value = false
+    }
+  }
+
   async function init() {
     await fetchConfig()
     await ensureListener()
@@ -62,10 +97,14 @@ export const useHotkeyStore = defineStore('hotkey', () => {
     status,
     loading,
     saving,
+    driverBusy,
     init,
     fetchConfig,
     saveConfig,
     stopTask,
+    installDriver,
+    uninstallDriver,
+    removeMouseFilter,
     disposeListener,
   }
 })

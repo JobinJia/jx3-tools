@@ -62,6 +62,10 @@ pub struct HotkeyStatus {
     pub last_error: Option<String>,
     /// 按键驱动（Interception）是否就绪；动态查询填充，不持久化
     pub driver_ready: bool,
+    /// 驱动安装状态（ready / pendingReboot / notInstalled），动态查询填充
+    pub driver_state: super::driver::DriverState,
+    /// 是否残留 interception 鼠标过滤器（旧版安装包遗留，需引导用户清理）
+    pub mouse_filter_present: bool,
 }
 
 /// Internal state of the hotkey service

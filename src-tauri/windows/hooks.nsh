@@ -1,29 +1,23 @@
 ; NSIS installer hooks for JX3-Tools
-; Installs the Interception kernel driver bundled under resources/interception.
-; The driver lets key simulation reach JX3 (its anti-cheat filters user-mode
-; synthesized input). A reboot is required before the driver becomes active.
+;
+; ⚠️ 刻意不在安装期触碰 Interception 内核驱动！
+; install-interception.exe /install 会同时安装键盘+鼠标两个 class 过滤驱动
+; （没有只装键盘的参数），鼠标过滤器曾导致用户鼠标瘫痪（2026-06 事故：
+; UpperFilters 引用的过滤器加载失败时整个鼠标设备栈起不来，重启也无效）。
+; 驱动安装已改为应用内"按键"页面由用户知情后手动触发：只保留键盘过滤器，
+; 安装完成后立即从注册表移除鼠标过滤器（见 src/services/hotkey/driver.rs）。
+; 不要在这里恢复任何形式的自动驱动安装。
 
 !macro NSIS_HOOK_PREINSTALL
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  DetailPrint "正在安装 Interception 按键驱动..."
-
-  ; interception.dll must sit next to the exe so it loads at runtime;
-  ; Tauri puts bundled resources under $INSTDIR\resources\, not beside the exe.
-  CopyFiles /SILENT "$INSTDIR\resources\interception\interception.dll" "$INSTDIR\interception.dll"
-
-  ; Install the kernel driver (needs admin; the app manifest already elevates the installer)
-  nsExec::ExecToLog '"$INSTDIR\resources\interception\install-interception.exe" /install'
-  Pop $0
-  DetailPrint "Interception 驱动安装返回码: $0"
-
-  MessageBox MB_OK|MB_ICONINFORMATION "按键驱动已安装。$\r$\n请重启电脑后，按键功能才能在游戏内生效。"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; 默认不卸载 Interception 驱动：其他软件可能也在使用它。
-  ; 如确需卸载，请手动以管理员身份运行：install-interception.exe /uninstall（需重启）。
+  ; 不自动卸载驱动：卸载需重启生效，且其他软件可能也在使用 Interception。
+  ; 如需卸载：应用内"按键"页面操作，或以管理员身份运行
+  ; install-interception.exe /uninstall（随后重启）。
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL

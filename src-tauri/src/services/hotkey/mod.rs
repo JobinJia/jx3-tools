@@ -1,13 +1,13 @@
 //! Hotkey service
 //!
 //! Global start/stop hotkeys are registered through tauri-plugin-global-shortcut
-//! (RegisterHotKey under the hood) — no kernel driver required. The previous
-//! Interception-based listener dynamically linked interception.dll, which
-//! crashed the whole app at load time on machines without the driver.
-//! The runner thread presses the trigger key via SendInput scancodes (global
-//! mode) or PostMessage (window mode).
+//! (RegisterHotKey under the hood) — no kernel driver required for listening.
+//! The runner thread presses the trigger key via Interception kernel injection
+//! (global mode, keyboard-only driver, see keys.rs/driver.rs) or PostMessage
+//! (window mode).
 
 mod config;
+pub mod driver;
 pub mod keymap;
 #[cfg(target_os = "windows")]
 mod keys;
@@ -188,7 +188,7 @@ impl HotkeyService {
         self.snapshot_status()
     }
 
-    /// Clone the stored status and fill the live `driver_ready` flag
+    /// Clone the stored status and fill the live driver fields
     fn snapshot_status(&self) -> HotkeyStatus {
         let mut status = match self.inner.lock() {
             Ok(inner) => inner.status.clone(),
@@ -197,7 +197,7 @@ impl HotkeyService {
                 poisoned.into_inner().status.clone()
             }
         };
-        status.driver_ready = driver_ready();
+        fill_driver_status(&mut status);
         status
     }
 
@@ -283,7 +283,7 @@ impl HotkeyService {
         // 驱动未就绪直接拒绝：否则会空转一个无法注入按键的 runner
         if keys::driver_status() != keys::DriverStatus::Ready {
             return Err(AppError::Hotkey(
-                "按键驱动未就绪，请安装 Interception 驱动并重启电脑后重试".into(),
+                "按键驱动未就绪，请先在按键页面安装驱动并重启电脑".into(),
             ));
         }
 
@@ -408,16 +408,24 @@ impl HotkeyService {
     }
 }
 
-/// 当前按键驱动是否就绪（动态查询，用于填充 HotkeyStatus.driver_ready）
-fn driver_ready() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        keys::driver_status() == keys::DriverStatus::Ready
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        false
-    }
+/// 动态填充驱动相关状态字段（不持久化）
+#[cfg(target_os = "windows")]
+fn fill_driver_status(status: &mut HotkeyStatus) {
+    status.driver_ready = keys::driver_status() == keys::DriverStatus::Ready;
+    status.driver_state = if status.driver_ready {
+        driver::DriverState::Ready
+    } else {
+        driver::registry_state()
+    };
+    status.mouse_filter_present = driver::mouse_filter_present();
+}
+
+/// 动态填充驱动相关状态字段（非 Windows 恒为未安装）
+#[cfg(not(target_os = "windows"))]
+fn fill_driver_status(status: &mut HotkeyStatus) {
+    status.driver_ready = false;
+    status.driver_state = driver::DriverState::NotInstalled;
+    status.mouse_filter_present = false;
 }
 
 /// Run the key sending loop
@@ -431,7 +439,7 @@ fn run_key_loop(
 ) {
     match key_mode {
         types::KeyMode::Global => {
-            // 全局模式：SendInput 扫描码模拟
+            // 全局模式：Interception 内核注入
             while !stop_flag.load(Ordering::SeqCst) {
                 if let Err(err) = simulate_key_press(trigger_key) {
                     log::error!("热键触发失败: {}", err);

@@ -28,6 +28,9 @@ export interface HotkeyConfig {
   targetWindow: TargetWindow | null
 }
 
+/** 按键驱动安装状态 */
+export type DriverState = 'ready' | 'pendingReboot' | 'notInstalled'
+
 /** Hotkey runtime status */
 export interface HotkeyStatus {
   running: boolean
@@ -35,4 +38,8 @@ export interface HotkeyStatus {
   lastError: string | null
   /** 按键驱动（Interception）是否就绪 */
   driverReady: boolean
+  /** 驱动安装状态（已就绪 / 等待重启 / 未安装） */
+  driverState: DriverState
+  /** 是否残留 interception 鼠标过滤器（旧版安装包遗留，需清理） */
+  mouseFilterPresent: boolean
 }

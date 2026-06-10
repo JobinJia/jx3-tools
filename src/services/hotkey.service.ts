@@ -43,4 +43,26 @@ export const hotkeyService = {
   async checkWindowValid(hwnd: number): Promise<boolean> {
     return invoke<boolean>('check_window_valid', { hwnd })
   },
+
+  /**
+   * Install the Interception keyboard driver (mouse filter is removed
+   * right after install; reboot required). Windows only.
+   */
+  async installDriver(): Promise<HotkeyStatus> {
+    return invoke<HotkeyStatus>('install_hotkey_driver')
+  },
+
+  /**
+   * Uninstall the Interception driver (reboot required). Windows only.
+   */
+  async uninstallDriver(): Promise<HotkeyStatus> {
+    return invoke<HotkeyStatus>('uninstall_hotkey_driver')
+  },
+
+  /**
+   * Remove the leftover interception mouse filter (legacy full install)
+   */
+  async removeMouseFilter(): Promise<HotkeyStatus> {
+    return invoke<HotkeyStatus>('remove_mouse_filter')
+  },
 }

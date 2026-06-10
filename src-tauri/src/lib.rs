@@ -75,6 +75,9 @@ pub fn run() {
             stop_hotkey_task,
             list_windows,
             check_window_valid,
+            install_hotkey_driver,
+            uninstall_hotkey_driver,
+            remove_mouse_filter,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

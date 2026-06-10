@@ -9,7 +9,7 @@ import { useHotkeyStore } from '@/stores/hotkey'
 
 const message = useMessage()
 const hotkeyStore = useHotkeyStore()
-const { config, status, loading, saving } = storeToRefs(hotkeyStore)
+const { config, status, loading, saving, driverBusy } = storeToRefs(hotkeyStore)
 
 const formValue = reactive<HotkeyConfig>({
   triggerKey: '',
@@ -61,8 +61,52 @@ const statusClass = computed(() => {
   return 'idle'
 })
 
-// 按键驱动未就绪（仅 Windows 有意义）：需引导用户安装驱动并重启
-const driverNotReady = computed(() => isWindows.value && !status.value.driverReady)
+// 驱动安装状态（仅 Windows 有意义）
+const driverState = computed(() => status.value.driverState)
+const showDriverInstall = computed(() => isWindows.value && driverState.value === 'notInstalled')
+const showDriverReboot = computed(() => isWindows.value && driverState.value === 'pendingReboot')
+// 旧版安装包附带的鼠标过滤器残留（任何驱动状态下都提示清理）
+const showMouseFilterWarn = computed(() => isWindows.value && status.value.mouseFilterPresent)
+
+function errorText(error: unknown, fallback: string): string {
+  if (typeof error === 'string')
+    return error
+  if (error instanceof Error)
+    return error.message
+  if (error && typeof error === 'object' && 'message' in error)
+    return String((error as { message: unknown }).message)
+  return fallback
+}
+
+async function handleInstallDriver() {
+  try {
+    await hotkeyStore.installDriver()
+    message.success('驱动已安装（仅键盘过滤器），请重启电脑后使用按键功能')
+  } catch (error: unknown) {
+    console.error('安装按键驱动失败:', error)
+    message.error(errorText(error, '安装驱动失败'))
+  }
+}
+
+async function handleRemoveMouseFilter() {
+  try {
+    await hotkeyStore.removeMouseFilter()
+    message.success('鼠标过滤器已移除，不影响按键功能')
+  } catch (error: unknown) {
+    console.error('移除鼠标过滤器失败:', error)
+    message.error(errorText(error, '移除鼠标过滤器失败'))
+  }
+}
+
+async function handleUninstallDriver() {
+  try {
+    await hotkeyStore.uninstallDriver()
+    message.success('驱动已卸载，重启电脑后彻底生效')
+  } catch (error: unknown) {
+    console.error('卸载按键驱动失败:', error)
+    message.error(errorText(error, '卸载驱动失败'))
+  }
+}
 
 // 将 KeyboardEvent.key 转换为按键名称
 function keyEventToKeyName(e: KeyboardEvent): string {
@@ -271,15 +315,7 @@ async function saveConfig() {
     message.success('配置已保存，按开始热键即可执行')
   } catch (error: unknown) {
     console.error('保存按键配置失败:', error)
-    let msg = '保存失败，请检查输入'
-    if (typeof error === 'string') {
-      msg = error
-    } else if (error instanceof Error) {
-      msg = error.message
-    } else if (error && typeof error === 'object' && 'message' in error) {
-      msg = String((error as { message: unknown }).message)
-    }
-    message.error(msg)
+    message.error(errorText(error, '保存失败，请检查输入'))
   }
 }
 
@@ -309,13 +345,56 @@ onUnmounted(() => {
     </PageHeader>
 
     <n-alert
-      v-if="driverNotReady"
+      v-if="showDriverInstall"
       type="warning"
-      title="按键驱动未就绪"
+      title="按键驱动未安装"
       class="mx-auto mb-3 max-w-[480px]"
     >
-      剑网三的反作弊会拦截普通模拟按键，本功能需要 Interception 驱动级模拟。
-      若你刚安装过本软件，请<b>重启电脑</b>后再试；如从未安装，请重新运行安装包。
+      <p>
+        剑网三的反作弊会拦截普通模拟按键，本功能需要 Interception <b>键盘</b>驱动（内核级）。
+        安装只保留键盘过滤器，<b>不会触碰鼠标</b>；安装后需重启电脑一次。
+      </p>
+      <n-popconfirm
+        :positive-button-props="{ loading: driverBusy }"
+        @positive-click="handleInstallDriver"
+      >
+        <template #trigger>
+          <n-button size="small" type="primary" class="mt-2" :loading="driverBusy">
+            安装按键驱动
+          </n-button>
+        </template>
+        将安装系统内核驱动（仅键盘过滤器），需重启电脑后生效。确认安装？
+      </n-popconfirm>
+    </n-alert>
+
+    <n-alert
+      v-else-if="showDriverReboot"
+      type="info"
+      title="驱动已安装，等待重启"
+      class="mx-auto mb-3 max-w-[480px]"
+    >
+      按键驱动已安装但尚未加载，请<b>重启电脑</b>后再使用按键功能。
+    </n-alert>
+
+    <n-alert
+      v-if="showMouseFilterWarn"
+      type="warning"
+      title="检测到多余的鼠标过滤器"
+      class="mx-auto mb-3 max-w-[480px]"
+    >
+      <p>
+        系统中残留 Interception <b>鼠标</b>过滤器（旧版安装包遗留），可能在重启后导致鼠标失灵。
+        本功能只需要键盘过滤器，建议立即移除，不影响按键功能。
+      </p>
+      <n-button
+        size="small"
+        type="warning"
+        class="mt-2"
+        :loading="driverBusy"
+        @click="handleRemoveMouseFilter"
+      >
+        移除鼠标过滤器
+      </n-button>
     </n-alert>
 
     <n-alert v-if="status.lastError" type="error" title="错误" class="mx-auto mb-3 max-w-[480px]">
@@ -469,8 +548,8 @@ onUnmounted(() => {
           style="color: var(--ink-secondary)"
         >
           <p>
-            1. 按键模拟需要 <b>Interception 驱动</b>（随安装包自动安装，装后需重启电脑一次）。
-            剑网三反作弊会拦截普通模拟按键，驱动级注入才能生效。
+            1. 按键模拟需要 <b>Interception 键盘驱动</b>（在本页面手动安装，装后需重启电脑一次）。
+            剑网三反作弊会拦截普通模拟按键，驱动级注入才能生效。本工具只安装键盘过滤器，不会触碰鼠标。
           </p>
           <p class="mt-1">
             2. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b> / <b>{{ formValue.stopHotkey || '结束热键' }}</b>
@@ -478,6 +557,19 @@ onUnmounted(() => {
           </p>
           <p class="mt-1">
             3. 开始/结束热键支持组合键（如 Ctrl+Alt+F5）；触发按键支持字母、数字、F1-F12、方向键、小键盘等，且不能与开始/结束热键相同。
+          </p>
+          <p v-if="isWindows && driverState !== 'notInstalled'" class="mt-1">
+            4. 不再使用按键功能时，可
+            <n-popconfirm
+              :positive-button-props="{ loading: driverBusy }"
+              @positive-click="handleUninstallDriver"
+            >
+              <template #trigger>
+                <a class="cursor-pointer" style="color: var(--indigo)">卸载按键驱动</a>
+              </template>
+              将卸载 Interception 驱动（重启电脑后彻底生效）。确认卸载？
+            </n-popconfirm>
+            ；卸载后重启电脑彻底生效。
           </p>
         </div>
       </div>
