@@ -29,7 +29,7 @@
     "lint": "eslint . --fix",
     "lint:fix": "eslint . --fix",
     "prepare": "husky",
-    "release": "bumpp --config .bumpp.config.cjs"
+    "release": "bumpp"
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "~2.7.1",
