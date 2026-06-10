@@ -60,11 +60,11 @@ Components and icons are auto-imported: `unplugin-vue-components` (with `NaiveUi
 - `app_state.rs` - `AppState { Arc<HotkeyService>, Arc<MacService> }`, accessed by commands via `tauri::State`
 - `commands/` - thin IPC layer (`mac.rs`, `keyboard.rs`, `hotkey.rs`)
 - `services/hotkey/` - `listener.rs` (Interception-driver global key listener → start/stop events), `keys.rs` (key simulation), `window.rs` (window enumeration / PostMessage), `config.rs` (validation + JSON persistence), `types.rs`
-- `services/mac/` - PowerShell-driven (scripts in `scripts.rs`): sets the `NetworkAddress` registry value and restarts the adapter; needs admin (errors map to `PermissionDenied`); auto-restore registers Windows Task Scheduler task `JX3ToolsMacRestore` (onlogon)
+- `services/mac/` - PowerShell-driven (`scripts/*.ps1` assembled by `scripts.rs`): writes the `NetworkAddress` registry override, restarts the adapter, then **reads the MAC back to verify** the driver accepted it (rolls back + errors if not — many drivers, esp. wireless, silently ignore the override); restore clears overrides on all physical adapters (falls back to `PermanentAddress`); needs admin (errors map to `PermissionDenied`); no local state files — the registry and the Task Scheduler task `JX3ToolsMacRestore` (onlogon, `/rl HIGHEST`) are the source of truth
 - `services/keyboard.rs` - directory tree + copy. Encodes the JX3 userdata layout: tree depth 4 = a character dir (returned with `is_dir: false` to mark it selectable); `userpreferences` dirs are skipped; copy **deletes the target dir** before copying; symlinks are rejected/skipped
 - `error.rs` - `AppError` (thiserror) + `AppResult<T>`; user-facing messages are Chinese
 
-Backend persistent state lives in `dirs::config_dir()/jx3-tools/` (`hotkey_config.json`, `mac_state.json`, `mac_auto_restore.txt`).
+Backend persistent state lives in `dirs::config_dir()/jx3-tools/` (`hotkey_config.json`).
 
 ### Hotkey runtime model (the most intricate part)
 
@@ -76,7 +76,7 @@ Hotkey and MAC mutation are Windows-only (`interception` + `windows` crates unde
 
 ### Tauri Commands (IPC)
 
-- MAC: `get_mac_address`, `change_mac_address`, `restore_mac_cmd`, `get_auto_restore_setting`, `set_auto_restore_setting`
+- MAC: `get_mac_info`, `randomize_mac_address`, `restore_mac_cmd`, `get_auto_restore_setting`, `set_auto_restore_setting`
 - Keyboard: `list_directory_contents`, `cp_source_to_target`, `open_folder`
 - Hotkey: `get_hotkey_config`, `save_hotkey_config`, `get_hotkey_status`, `stop_hotkey_task`, `list_windows`, `check_window_valid`
 

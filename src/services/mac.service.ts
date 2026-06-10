@@ -1,25 +1,26 @@
+import type { MacInfo } from '@/types/mac'
 import { invoke } from '@tauri-apps/api/core'
 
 export const macService = {
   /**
-   * Get current MAC address
+   * Get the primary adapter's MAC info
    */
-  async getMacAddress(): Promise<string> {
-    return invoke<string>('get_mac_address')
+  async getMacInfo(): Promise<MacInfo> {
+    return invoke<MacInfo>('get_mac_info')
   },
 
   /**
-   * Change MAC address to a new value
+   * Change MAC address to a random value; resolves with the verified actual state
    */
-  async changeMacAddress(macAddress: string): Promise<void> {
-    return invoke<void>('change_mac_address', { macAddress })
+  async randomizeMacAddress(): Promise<MacInfo> {
+    return invoke<MacInfo>('randomize_mac_address')
   },
 
   /**
-   * Restore original MAC address
+   * Restore the original MAC address; resolves with the verified actual state
    */
-  async restoreMacAddress(): Promise<void> {
-    return invoke<void>('restore_mac_cmd')
+  async restoreMacAddress(): Promise<MacInfo> {
+    return invoke<MacInfo>('restore_mac_cmd')
   },
 
   /**

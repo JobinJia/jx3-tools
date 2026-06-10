@@ -4,6 +4,7 @@ import PageHeader from '@/components/layout/PageHeader.vue'
 import { useMac } from '@/composables/useMac'
 
 const {
+  adapterName,
   originalAddress,
   currentAddress,
   autoRestoreEnabled,
@@ -35,7 +36,7 @@ onMounted(() => {
       <div class="mx-auto max-w-[430px]">
         <div class="paper-card p-5 text-center">
           <div class="text-[10px] tracking-[2px]" style="color: var(--ink-muted)">
-            当前地址
+            当前地址<span v-if="adapterName"> · {{ adapterName }}</span>
           </div>
           <div class="text-mono mt-2 text-[26px] tracking-[3px]" style="color: var(--ink)">
             {{ currentAddress || '——' }}
@@ -55,6 +56,9 @@ onMounted(() => {
             <n-button :loading="restoring" @click="restoreMacAddress">
               还原地址
             </n-button>
+          </div>
+          <div class="mt-3 text-[10px]" style="color: var(--ink-muted)">
+            修改/还原需以管理员身份运行，网卡会短暂重启断网
           </div>
         </div>
 

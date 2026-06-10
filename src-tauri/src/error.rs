@@ -118,30 +118,6 @@ pub type AppResult<T> = Result<T, AppError>;
 // Validation helpers
 // ============================================================================
 
-/// Validate MAC address format
-pub fn validate_mac_address(mac: &str) -> AppResult<()> {
-    let cleaned: String = mac
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != ':' && *c != '-')
-        .collect();
-
-    if cleaned.len() != 12 {
-        return Err(AppError::validation(
-            "mac_address",
-            "MAC 地址必须是12位十六进制数字",
-        ));
-    }
-
-    if !cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(AppError::validation(
-            "mac_address",
-            "MAC 地址只能包含十六进制字符 (0-9, A-F)",
-        ));
-    }
-
-    Ok(())
-}
-
 /// Validate path is not empty
 pub fn validate_path_not_empty(path: &str, field_name: &str) -> AppResult<()> {
     if path.trim().is_empty() {

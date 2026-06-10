@@ -1,7 +1,7 @@
-/** MAC address state */
-export interface MacState {
-  originalAddress: string
-  currentAddress: string
-  isChanged: boolean
-  autoRestoreEnabled: boolean
+/** Adapter MAC info reported by the backend (verified actual state) */
+export interface MacInfo {
+  adapterName: string
+  currentMac: string
+  permanentMac: string
+  isModified: boolean
 }

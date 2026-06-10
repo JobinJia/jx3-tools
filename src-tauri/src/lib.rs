@@ -15,7 +15,7 @@ pub use services::mac::MacService;
 /// Restore MAC address (called from main.rs for CLI)
 pub fn restore_mac_address() -> error::AppResult<()> {
     let service = MacService::new()?;
-    service.restore_mac_address()
+    service.restore_mac_address().map(|_| ())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -59,8 +59,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // MAC address commands
-            get_mac_address,
-            change_mac_address,
+            get_mac_info,
+            randomize_mac_address,
             restore_mac_cmd,
             get_auto_restore_setting,
             set_auto_restore_setting,
