@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { UserSelect } from '@/types'
-import { ref } from 'vue'
 import { useKeyboard } from '@/composables/useKeyboard'
 import { useRecentOps } from '@/composables/useRecentOps'
 
@@ -11,8 +10,6 @@ const props = defineProps<{
 const { copyKeyboardConfig, copyLoading } = useKeyboard()
 const { recentOps, addRecentOp, formatOpTime } = useRecentOps()
 
-const faqExpanded = ref(false)
-
 async function handleCopy() {
   const ok = await copyKeyboardConfig(props.userSelect)
   if (ok)
@@ -21,84 +18,127 @@ async function handleCopy() {
 </script>
 
 <template>
-  <div class="h-full min-w-[170px] flex flex-1 flex-col gap-3">
-    <div class="paper-card p-3.5">
-      <div class="mb-2 text-[11px]" style="color: var(--ink-muted)">
-        本次操作
-      </div>
-      <div class="text-xs leading-7" style="color: var(--ink)">
-        <div>
-          <span class="mr-2" style="color: var(--cinnabar)">源</span>{{ userSelect.source || '未选择' }}
+  <div class="paper-card flex items-center gap-3 px-4 py-2.5">
+    <div class="flex items-center gap-2 text-xs">
+      <span class="slot-chip slot-source" :class="{ 'slot-empty': !userSelect.source }">
+        源 · {{ userSelect.source || '未选择' }}
+      </span>
+      <span style="color: var(--cinnabar)">➜</span>
+      <span class="slot-chip slot-target" :class="{ 'slot-empty': !userSelect.target }">
+        目 · {{ userSelect.target || '未选择' }}
+      </span>
+      <span class="text-[10px]" style="color: var(--ink-muted)">目标现有键位将被覆盖，不可撤销</span>
+    </div>
+
+    <div class="ml-auto flex items-center gap-4">
+      <n-popover trigger="click" placement="top-end" style="max-width: 340px">
+        <template #trigger>
+          <a class="bar-link">常见问题</a>
+        </template>
+        <div class="text-xs leading-relaxed">
+          <p><b>自己带键位的账号</b>需要在游戏里<b>关闭同步到服务器</b>，这样键位才能在本地得到保存。</p>
+          <p class="mt-1.5">
+            <b>新账号</b>登入到角色选择界面后选中角色（不进入游戏），点击「⟳ 刷新」即可搜索到该角色。
+          </p>
         </div>
-        <div class="pl-3.5" style="color: var(--ink-muted)">
-          ↓ 覆盖
+      </n-popover>
+
+      <n-popover trigger="click" placement="top-end" style="width: 300px">
+        <template #trigger>
+          <a class="bar-link">最近操作</a>
+        </template>
+        <div class="text-xs">
+          <div v-if="recentOps.length === 0" style="color: var(--ink-muted)">
+            暂无记录
+          </div>
+          <div
+            v-for="op in recentOps"
+            :key="op.at"
+            class="truncate leading-6"
+          >
+            <span style="color: var(--bamboo)">✓</span> {{ op.source }} → {{ op.target }}
+            <span class="float-right" style="color: var(--ink-muted)">{{ formatOpTime(op.at) }}</span>
+          </div>
         </div>
-        <div>
-          <span class="mr-2" style="color: var(--indigo)">目</span>{{ userSelect.target || '未选择' }}
-        </div>
-      </div>
+      </n-popover>
+
       <button
         class="copy-btn"
         :disabled="!(userSelect.source && userSelect.target) || copyLoading"
         @click="handleCopy"
       >
-        {{ copyLoading ? '复制中…' : '复 制 键 位' }}
+        {{ copyLoading ? '复制中…' : '复制键位' }}
       </button>
-      <div class="mt-1.5 text-center text-[9px]" style="color: var(--ink-muted)">
-        目标角色现有键位将被覆盖，不可撤销
-      </div>
-    </div>
-
-    <div class="paper-card min-h-0 flex-1 overflow-y-auto p-3">
-      <div class="mb-1.5 text-[11px]" style="color: var(--ink-muted)">
-        最近操作
-      </div>
-      <div v-if="recentOps.length === 0" class="text-[10px]" style="color: var(--ink-muted)">
-        暂无记录
-      </div>
-      <div
-        v-for="op in recentOps"
-        :key="op.at"
-        class="truncate text-[10px] leading-7"
-        style="color: var(--ink-secondary)"
-      >
-        <span style="color: var(--bamboo)">✓</span> {{ op.source }} → {{ op.target }}
-        <span class="float-right" style="color: var(--ink-muted)">{{ formatOpTime(op.at) }}</span>
-      </div>
-    </div>
-
-    <div class="text-[10px]" style="color: var(--ink-muted)">
-      <a class="cursor-pointer" style="color: var(--indigo)" @click="faqExpanded = !faqExpanded">
-        常见问题 {{ faqExpanded ? '▴' : '▾' }}
-      </a>
-      <div v-if="faqExpanded" class="mt-1.5 leading-relaxed">
-        <p><b>自己带键位的账号</b>需要在游戏里<b>关闭同步到服务器</b>，这样键位才能在本地得到保存。</p>
-        <p class="mt-1">
-          <b>新账号</b>登入到角色选择界面后选中角色（不进入游戏），点击「⟳ 刷新」即可搜索到该角色。
-        </p>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.slot-chip {
+  border-radius: 5px;
+  padding: 4px 10px;
+  border: 1px solid;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot-source {
+  color: var(--cinnabar);
+  border-color: var(--cinnabar);
+  background: var(--cinnabar-tint);
+}
+
+.slot-target {
+  color: var(--indigo);
+  border-color: var(--indigo);
+  background: var(--indigo-tint);
+}
+
+.slot-empty {
+  color: var(--ink-muted);
+  border-color: var(--line);
+  border-style: dashed;
+  background: transparent;
+}
+
+.bar-link {
+  font-size: 11px;
+  color: var(--indigo);
+  cursor: pointer;
+}
+
 .copy-btn {
-  width: 100%;
-  margin-top: 12px;
-  padding: 8px 0;
+  padding: 5px 16px;
   border: none;
-  border-radius: 6px;
-  background: var(--cinnabar);
+  border-radius: 5px;
+  background: linear-gradient(180deg, var(--cinnabar-hover) 0%, var(--cinnabar) 100%);
   color: #f7f2e4;
-  font-size: 13px;
-  letter-spacing: 4px;
+  font-size: 12px;
+  letter-spacing: 3px;
+  /* 字距补偿，让文字整体视觉居中 */
+  text-indent: 3px;
   font-family: 'Songti SC', 'STSong', 'SimSun', serif;
   cursor: pointer;
-  transition: background 0.2s;
+  box-shadow:
+    0 1px 3px rgba(156, 47, 35, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition:
+    filter 0.15s,
+    transform 0.1s,
+    box-shadow 0.15s;
 }
 
 .copy-btn:hover:not(:disabled) {
-  background: var(--cinnabar-hover);
+  filter: brightness(1.08);
+}
+
+.copy-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    0 0 1px rgba(156, 47, 35, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .copy-btn:focus-visible {

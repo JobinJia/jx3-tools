@@ -11,6 +11,29 @@ const { basePath, changeDirectory, templates, loadTree } = useKeyboard()
 
 const sourceTab = ref<'all' | 'favorites'>('all')
 
+// 源/目标独立搜索：两边找的本来就是不同角色，全局一个搜索框会互相干扰
+const sourcePattern = ref('')
+const targetPattern = ref('')
+
+// 「全部」树内只显示已收藏的角色（快速定位常用键位）
+const favOnly = ref(false)
+
+// 页面级统一控制两棵树的展开/收起（树组件自身不再带按钮）
+const sourceTreeRef = ref<InstanceType<typeof SourceTree> | null>(null)
+const targetTreeRef = ref<InstanceType<typeof SourceTree> | null>(null)
+const allExpanded = ref(false)
+
+function toggleExpandAll() {
+  allExpanded.value = !allExpanded.value
+  if (allExpanded.value) {
+    sourceTreeRef.value?.expandAll()
+    targetTreeRef.value?.expandAll()
+  } else {
+    sourceTreeRef.value?.collapseAll()
+    targetTreeRef.value?.collapseAll()
+  }
+}
+
 const userSelect = ref<UserSelect>({
   source: '',
   sourcePath: '',
@@ -40,7 +63,7 @@ function selectTemplate(template: KeyboardTemplate) {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-5">
+  <div class="h-full flex flex-col px-5 py-3.5">
     <!-- 空状态：未选择 userdata 目录 -->
     <div v-if="!basePath" class="flex flex-1 items-center justify-center">
       <div class="paper-card max-w-[360px] p-8 text-center">
@@ -62,6 +85,9 @@ function selectTemplate(template: KeyboardTemplate) {
     <template v-else>
       <PageHeader title="改键" description="在账号与角色之间复制键位配置">
         <template #extra>
+          <n-button size="tiny" quaternary class="mr-2" @click="toggleExpandAll">
+            {{ allExpanded ? '收起全部' : '展开全部' }}
+          </n-button>
           <div class="path-capsule">
             <span style="color: var(--ink-muted)">📁</span>
             <n-tooltip trigger="hover">
@@ -83,20 +109,48 @@ function selectTemplate(template: KeyboardTemplate) {
 
       <div class="min-h-0 flex flex-1 gap-3.5">
         <!-- 源卡片 -->
-        <div class="paper-card w-[270px] flex flex-shrink-0 flex-col overflow-hidden">
+        <div class="paper-card min-w-0 flex flex-1 flex-col overflow-hidden">
           <div class="card-head">
-            <span class="text-xs font-600" style="color: var(--ink)">源角色</span>
-            <n-radio-group v-model:value="sourceTab" size="small">
+            <span class="flex-shrink-0 text-xs font-600" style="color: var(--ink)">
+              <span class="head-dot" style="background: var(--cinnabar)" />源角色
+            </span>
+            <n-radio-group v-model:value="sourceTab" size="small" class="flex-shrink-0">
               <n-radio-button value="all">
                 全部
               </n-radio-button>
               <n-radio-button value="favorites">
-                常用 {{ templates.length }}
+                常用{{ templates.length > 0 ? ` (${templates.length})` : '' }}
               </n-radio-button>
             </n-radio-group>
+            <template v-if="sourceTab === 'all'">
+              <button
+                class="fav-filter"
+                :class="{ active: favOnly }"
+                :disabled="templates.length === 0"
+                :title="templates.length === 0 ? '还没有收藏过常用键位' : (favOnly ? '显示全部角色' : '只显示已收藏的角色')"
+                @click="favOnly = !favOnly"
+              >
+                {{ favOnly ? '★' : '☆' }}
+              </button>
+              <n-input
+                v-model:value="sourcePattern"
+                size="tiny"
+                clearable
+                placeholder="搜索源角色…"
+                class="ml-auto min-w-[80px] flex-1"
+                style="max-width: 170px"
+              />
+            </template>
           </div>
           <div class="flex-1 overflow-hidden">
-            <SourceTree v-show="sourceTab === 'all'" type="source" @source="setSource" />
+            <SourceTree
+              v-show="sourceTab === 'all'"
+              ref="sourceTreeRef"
+              type="source"
+              :pattern="sourcePattern"
+              :fav-only="favOnly"
+              @source="setSource"
+            />
             <TemplateList
               v-show="sourceTab === 'favorites'"
               :selected-path="userSelect.sourcePath"
@@ -111,19 +165,33 @@ function selectTemplate(template: KeyboardTemplate) {
         </div>
 
         <!-- 目标卡片 -->
-        <div class="paper-card w-[270px] flex flex-shrink-0 flex-col overflow-hidden">
+        <div class="paper-card min-w-0 flex flex-1 flex-col overflow-hidden">
           <div class="card-head">
-            <span class="text-xs font-600" style="color: var(--ink)">目标角色</span>
-            <span class="text-[10px]" style="color: var(--ink-muted)">键位将被覆盖</span>
+            <span class="flex-shrink-0 text-xs font-600" style="color: var(--ink)">
+              <span class="head-dot" style="background: var(--indigo)" />目标角色
+            </span>
+            <n-input
+              v-model:value="targetPattern"
+              size="tiny"
+              clearable
+              placeholder="搜索目标角色…"
+              class="ml-auto min-w-[80px] flex-1"
+              style="max-width: 170px"
+            />
           </div>
           <div class="flex-1 overflow-hidden">
-            <SourceTree type="target" placeholder="搜索没有键位的账号/角色" @source="setTarget" />
+            <SourceTree
+              ref="targetTreeRef"
+              type="target"
+              :pattern="targetPattern"
+              @source="setTarget"
+            />
           </div>
         </div>
-
-        <!-- 操作面板 -->
-        <Result :user-select="userSelect" />
       </div>
+
+      <!-- 底部操作条：选择摘要 + 复制 -->
+      <Result class="mt-3" :user-select="userSelect" />
     </template>
   </div>
 </template>
@@ -132,9 +200,55 @@ function selectTemplate(template: KeyboardTemplate) {
 .card-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--line-soft);
+}
+
+.head-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.fav-filter {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--ink-muted);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.fav-filter:hover:not(:disabled) {
+  color: var(--ochre);
+  border-color: var(--ochre);
+}
+
+.fav-filter.active {
+  color: var(--ochre);
+  border-color: var(--ochre);
+  background: var(--ochre-tint);
+}
+
+.fav-filter:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .path-capsule {

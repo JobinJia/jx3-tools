@@ -26,7 +26,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full p-5">
+  <div class="h-full px-5 py-3.5">
     <PageHeader title="MAC地址" description="查看、随机修改与还原网卡物理地址" />
 
     <n-alert v-if="error" type="error" :title="error" class="mx-auto mb-3 max-w-[430px]" />

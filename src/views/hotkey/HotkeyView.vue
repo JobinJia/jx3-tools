@@ -294,7 +294,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full p-5">
+  <div class="h-full px-5 py-3.5">
     <PageHeader title="按键" description="全局热键控制的自动按键">
       <template #extra>
         <div class="status-badge" :class="statusClass">

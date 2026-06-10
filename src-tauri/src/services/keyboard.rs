@@ -25,6 +25,9 @@ pub struct CopyParams {
 
 pub struct KeyboardService;
 
+/// 角色目录所在的树深度（userdata/<账号>/<区服>/<服务器>/<角色>）
+const ROLE_DEPTH: usize = 4;
+
 impl KeyboardService {
     /// List directory contents recursively for keyboard config selection
     pub fn list_directory_contents(path: &str) -> AppResult<Vec<FileEntry>> {
@@ -52,13 +55,6 @@ impl KeyboardService {
             return Err(AppError::Keyboard("路径不能包含 '..'".into()));
         }
 
-        if !source.exists() {
-            return Err(AppError::Keyboard(format!(
-                "源路径不存在: {}",
-                source.display()
-            )));
-        }
-
         if !source.is_dir() {
             return Err(AppError::Keyboard(format!(
                 "源路径不是目录: {}",
@@ -66,30 +62,50 @@ impl KeyboardService {
             )));
         }
 
-        // Check if source is a symlink (security risk)
-        if source.is_symlink() {
-            return Err(AppError::Keyboard("不支持复制符号链接目录".into()));
+        // 安全交换式复制：先把源完整复制到同级临时目录，成功后再与旧目标交换。
+        // 任何一步失败，目标角色原有键位都保持完好（不再先删后拷）。
+        let parent = target
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| AppError::Keyboard(format!("目标路径无效: {}", target.display())))?;
+        let target_name = target
+            .file_name()
+            .ok_or_else(|| AppError::Keyboard(format!("目标路径无效: {}", target.display())))?
+            .to_string_lossy()
+            .to_string();
+        fs::create_dir_all(parent).map_err(|e| {
+            AppError::Keyboard(format!("无法创建目标目录 {}: {}", parent.display(), e))
+        })?;
+
+        // 以 . 开头：read_directory 会忽略隐藏目录，残留也不会污染树
+        let tmp = parent.join(format!(".{target_name}.tmp-copy"));
+        let bak = parent.join(format!(".{target_name}.bak-copy"));
+        let _ = fs::remove_dir_all(&tmp);
+        let _ = fs::remove_dir_all(&bak);
+
+        if let Err(e) = Self::copy_dir_all(&source, &tmp) {
+            let _ = fs::remove_dir_all(&tmp);
+            return Err(AppError::Keyboard(format!("复制键位失败（目标未受影响）: {e}")));
         }
 
-        // Always remove existing target directory first to ensure clean copy
+        // 交换：旧目标先挪到备份位，再把新内容就位
         if target.exists() {
-            log::debug!("清空目标目录: {}", target.display());
-            fs::remove_dir_all(&target).map_err(|e| {
+            fs::rename(&target, &bak).map_err(|e| {
+                let _ = fs::remove_dir_all(&tmp);
                 AppError::Keyboard(format!(
-                    "无法清空目标目录，请手动删除后重试: {}\n错误: {}",
-                    target.display(),
-                    e
+                    "无法移开旧的目标目录（可能被游戏占用，请关闭游戏后重试）: {e}"
                 ))
             })?;
         }
-
-        // Create target directory
-        fs::create_dir_all(&target).map_err(|e| {
-            AppError::Keyboard(format!("无法创建目标目录 {}: {}", target.display(), e))
-        })?;
-
-        // Copy all contents
-        Self::copy_dir_all(&source, &target)?;
+        if let Err(e) = fs::rename(&tmp, &target) {
+            // 就位失败：恢复旧目标
+            if bak.exists() {
+                let _ = fs::rename(&bak, &target);
+            }
+            let _ = fs::remove_dir_all(&tmp);
+            return Err(AppError::Keyboard(format!("写入目标目录失败（已恢复原键位）: {e}")));
+        }
+        let _ = fs::remove_dir_all(&bak);
 
         log::info!(
             "键位复制完成: {} -> {}",
@@ -112,28 +128,36 @@ impl KeyboardService {
 
         for entry in fs::read_dir(path)? {
             let entry = entry?;
-            let metadata = entry.metadata()?;
+            // file_type() 复用目录读取的结果，避免每个条目一次额外 stat
+            let file_type = entry.file_type()?;
 
-            if metadata.is_dir() {
+            if file_type.is_dir() {
                 let dir_name = entry
                     .file_name()
                     .into_string()
                     .map_err(|_| AppError::Keyboard("无效的目录名称".into()))?;
 
-                // Skip userpreferences directory
-                if dir_name == "userpreferences" {
+                // Skip userpreferences and hidden directories (incl. our tmp/bak dirs)
+                if dir_name == "userpreferences" || dir_name.starts_with('.') {
                     continue;
                 }
 
-                let subdir = Self::read_directory(&entry.path(), depth + 1)?;
+                // 角色层（ROLE_DEPTH）即叶子：不再向下递归。
+                // 否则角色目录内部的子目录会被当成 children，前端会把该角色渲染成
+                // 不可选中的"文件夹"节点，同时白白读取整棵无用子树。
+                let subdir = if depth < ROLE_DEPTH {
+                    Self::read_directory(&entry.path(), depth + 1)?
+                } else {
+                    Vec::new()
+                };
 
-                // Skip empty directories at depths 1-3
-                if (depth <= 3) && subdir.is_empty() {
+                // 账号/区服/服务器层的空目录（下面没有任何角色）直接跳过
+                if depth < ROLE_DEPTH && subdir.is_empty() {
                     continue;
                 }
 
-                // At depth 4, mark as non-role (is_dir = false)
-                let is_dir = depth != 4;
+                // 角色层标记为可选中的叶子（is_dir = false）
+                let is_dir = depth != ROLE_DEPTH;
 
                 let children = if subdir.is_empty() { None } else { Some(subdir) };
 
@@ -185,5 +209,133 @@ impl KeyboardService {
         let mut hasher = DefaultHasher::new();
         (name, path).hash(&mut hasher);
         hasher.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static TEST_DIR_SEQ: AtomicU32 = AtomicU32::new(0);
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "jx3-kb-test-{}-{}-{}",
+            std::process::id(),
+            label,
+            TEST_DIR_SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_file(path: &Path, content: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn tree_stops_at_role_depth_and_marks_roles_selectable() {
+        let root = temp_dir("tree");
+        // <账号>/<区服>/<服务器>/<角色>/<角色内部子目录>
+        fs::create_dir_all(root.join("acc1/zone/server/roleA/inner")).unwrap();
+        write_file(&root.join("acc1/zone/server/roleA/config.ini"), "x");
+        // 干扰项：散落文件、userpreferences、隐藏目录都应被忽略
+        write_file(&root.join("acc1/somefile.txt"), "x");
+        fs::create_dir_all(root.join("acc1/zone/server/userpreferences")).unwrap();
+        fs::create_dir_all(root.join(".hidden/zone/server/role")).unwrap();
+        // 没有任何角色的空账号应被跳过
+        fs::create_dir_all(root.join("acc-empty/zone/server")).unwrap();
+
+        let tree = KeyboardService::list_directory_contents(root.to_str().unwrap()).unwrap();
+
+        assert_eq!(tree.len(), 1, "只应保留有角色的账号");
+        let acc = &tree[0];
+        assert_eq!(acc.name, "acc1");
+        assert!(acc.is_dir);
+        let role = &acc.children.as_ref().unwrap()[0].children.as_ref().unwrap()[0]
+            .children
+            .as_ref()
+            .unwrap()[0];
+        assert_eq!(role.name, "roleA");
+        assert!(!role.is_dir, "角色层应标记为可选中叶子");
+        assert!(role.children.is_none(), "角色层不应继续递归出子目录");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn copy_replaces_target_and_leaves_no_temp_dirs() {
+        let root = temp_dir("copy");
+        let source = root.join("source");
+        let target = root.join("target");
+        write_file(&source.join("keys.ini"), "new-keys");
+        write_file(&source.join("sub/extra.ini"), "extra");
+        write_file(&target.join("old.ini"), "old-keys");
+
+        let ok = KeyboardService::copy_source_to_target(&CopyParams {
+            source_path: source.to_string_lossy().to_string(),
+            target_path: target.to_string_lossy().to_string(),
+        })
+        .unwrap();
+
+        assert!(ok);
+        assert_eq!(
+            fs::read_to_string(target.join("keys.ini")).unwrap(),
+            "new-keys"
+        );
+        assert_eq!(
+            fs::read_to_string(target.join("sub/extra.ini")).unwrap(),
+            "extra"
+        );
+        assert!(!target.join("old.ini").exists(), "旧内容应被整体替换");
+        assert!(!root.join(".target.tmp-copy").exists(), "临时目录不应残留");
+        assert!(!root.join(".target.bak-copy").exists(), "备份目录不应残留");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn copy_rejects_same_path_and_traversal() {
+        let root = temp_dir("guard");
+        let source = root.join("source");
+        fs::create_dir_all(&source).unwrap();
+
+        let same = KeyboardService::copy_source_to_target(&CopyParams {
+            source_path: source.to_string_lossy().to_string(),
+            target_path: source.to_string_lossy().to_string(),
+        });
+        assert!(same.is_err(), "源 == 目标应被拒绝");
+
+        let traversal = KeyboardService::copy_source_to_target(&CopyParams {
+            source_path: source.to_string_lossy().to_string(),
+            target_path: root.join("a/../b").to_string_lossy().to_string(),
+        });
+        assert!(traversal.is_err(), "包含 .. 的路径应被拒绝");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn copy_failure_preserves_existing_target() {
+        let root = temp_dir("preserve");
+        let target = root.join("target");
+        write_file(&target.join("old.ini"), "old-keys");
+
+        let missing = root.join("missing-source");
+        let result = KeyboardService::copy_source_to_target(&CopyParams {
+            source_path: missing.to_string_lossy().to_string(),
+            target_path: target.to_string_lossy().to_string(),
+        });
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(target.join("old.ini")).unwrap(),
+            "old-keys",
+            "复制失败时目标原有键位必须保持完好"
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

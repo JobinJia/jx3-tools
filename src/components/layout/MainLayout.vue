@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -12,7 +13,7 @@ const { mode, cycleMode } = useTheme()
 interface NavItem {
   name: string
   title: string
-  sealChar: string
+  icon?: Component
 }
 
 const navItems = computed<NavItem[]>(() => {
@@ -20,7 +21,7 @@ const navItems = computed<NavItem[]>(() => {
   return (rootRoute?.children || []).map(r => ({
     name: String(r.name),
     title: r.meta?.title ?? '',
-    sealChar: r.meta?.sealChar ?? '',
+    icon: r.meta?.icon,
   }))
 })
 
@@ -35,12 +36,12 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
         <n-tooltip v-for="item in navItems" :key="item.name" placement="right">
           <template #trigger>
             <button
-              class="seal-nav"
+              class="nav-item"
               :class="{ active: route.name === item.name }"
               :aria-label="item.title"
               @click="router.push({ name: item.name })"
             >
-              {{ item.sealChar }}
+              <component :is="item.icon" class="nav-icon" />
             </button>
           </template>
           {{ item.title }}
@@ -75,13 +76,15 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
   padding: 16px 0 12px;
 }
 
-.seal-nav {
+.nav-item {
   width: 36px;
   height: 36px;
+  /* the-new-css-reset 抹掉了 button 默认的内容居中，需显式 flex 居中 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 5px;
   cursor: pointer;
-  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
-  font-size: 17px;
   color: var(--sider-text);
   background: transparent;
   border: 1px solid var(--sider-line);
@@ -91,12 +94,17 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
     background 0.2s;
 }
 
-.seal-nav:hover {
+.nav-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.nav-item:hover {
   color: var(--sider-active-text);
   border-color: rgba(245, 239, 226, 0.4);
 }
 
-.seal-nav.active {
+.nav-item.active {
   background: var(--cinnabar);
   color: var(--sider-active-text);
   border-color: transparent;
@@ -106,6 +114,10 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
 .theme-toggle {
   width: 28px;
   height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   border-radius: 50%;
   border: 1px solid var(--sider-line);
   background: transparent;
@@ -118,7 +130,7 @@ const themeTitle = computed(() => (mode.value === 'system' ? '跟随系统' : mo
   color: var(--sider-active-text);
 }
 
-.seal-nav:focus-visible,
+.nav-item:focus-visible,
 .theme-toggle:focus-visible {
   outline: 2px solid var(--sider-active-text);
   outline-offset: 2px;

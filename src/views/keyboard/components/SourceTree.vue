@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { TreeOption, TreeOverrideNodeClickBehavior } from 'naive-ui'
 import type { FileEntry } from '@/types'
-import { NCheckbox, NInput, NTree, useMessage } from 'naive-ui'
-import { h, ref, watch } from 'vue'
+import { NCheckbox, NTree, useMessage } from 'naive-ui'
+import { computed, h, ref, watch } from 'vue'
 import FlatColorIconsFolder from '~icons/flat-color-icons/folder'
 import IcRoundFolderOpen from '~icons/ic/round-folder-open'
 import IcRoundStar from '~icons/ic/round-star'
@@ -12,10 +12,14 @@ import { keyboardService } from '@/services'
 
 const {
   type = 'source',
-  placeholder = '搜索带键位的账号/角色名称',
+  pattern = '',
+  favOnly = false,
 } = defineProps<{
   type?: 'source' | 'target'
-  placeholder?: string
+  /** 搜索词由页面级全局搜索框下发（同时过滤两棵树） */
+  pattern?: string
+  /** 只显示已收藏（常用键位）的角色，可与搜索词叠加 */
+  favOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -23,13 +27,11 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
-const source = ref('')
 
 const { basePath, treeData, loadTree, templates, saveTemplate } = useKeyboard()
 
 const expand = ref(false)
 const treeKey = ref(0)
-const pattern = ref('')
 
 function expandAll() {
   expand.value = true
@@ -40,6 +42,9 @@ function collapseAll() {
   expand.value = false
   treeKey.value++
 }
+
+// 展开/收起由页面级工具行统一控制（保持树组件纯粹）
+defineExpose({ expandAll, collapseAll })
 
 // 收藏弹窗相关
 const showFavoriteModal = ref(false)
@@ -56,7 +61,7 @@ function openFavoriteModal(node: FileEntry, e: Event) {
 function confirmFavorite() {
   if (!favoriteNode.value)
     return
-  const path = findPath(treeData.value, favoriteNode.value.name)
+  const path = findPathById(treeData.value, favoriteNode.value.id)
   if (!path)
     return
   // 如果没填名称，默认使用角色名
@@ -79,9 +84,18 @@ function toFileEntry(option: TreeOption): FileEntry {
   return option as unknown as FileEntry
 }
 
-function handleFilter(ptn: string, node: TreeOption) {
-  return toFileEntry(node).name.includes(ptn)
+function handleFilter(_ptn: string, node: TreeOption) {
+  const entry = toFileEntry(node)
+  const matchesText = !pattern || entry.name.includes(pattern)
+  // 只看收藏：仅角色节点（is_dir=false）且已收藏，可与搜索词叠加
+  if (favOnly)
+    return !entry.is_dir && isNodeFavorited(entry) && matchesText
+  return matchesText
 }
+
+// NTree 只在 pattern 非空时启用过滤；favOnly 模式下用不可见哨兵字符撑起过滤
+const FAV_SENTINEL = '\u0001'
+const effectivePattern = computed(() => (favOnly ? `${FAV_SENTINEL}${pattern}` : pattern))
 
 const override: TreeOverrideNodeClickBehavior = ({ option }) => {
   if (option.children) {
@@ -105,14 +119,14 @@ function renderPrefix(info: { option: TreeOption, checked: boolean, selected: bo
 
 // 检查节点是否已收藏
 function isNodeFavorited(node: FileEntry): boolean {
-  const path = findPath(treeData.value, node.name)
+  const path = findPathById(treeData.value, node.id)
   return templates.value.some(t => t.sourcePath === path)
 }
 
 // 打开文件夹
 function handleOpenFolder(node: FileEntry, e: Event) {
   e.stopPropagation()
-  const path = findPath(treeData.value, node.name)
+  const path = findPathById(treeData.value, node.id)
   if (path && basePath.value) {
     keyboardService.openFolder(`${basePath.value}/${path}`)
   }
@@ -193,21 +207,21 @@ function handleSelectedKeys(
   }
   if (action === 'select') {
     message.success(`选择${node?.name}`)
-    source.value = node!.name
+    const path = findPathById(treeData.value, node!.id)
+    emit('source', { name: node!.name, path: path ?? '' })
   } else {
     message.success(`取消选择${node?.name}`)
   }
 }
 
-// Find the path to a node by name
-function findPath(data: FileEntry[], targetName: string): string | null {
+// 按节点 id 定位路径：同名角色可能出现在不同账号/服务器下，按名字找会错配
+function findPathById(data: FileEntry[], targetId: number): string | null {
   function helper(entries: FileEntry[], currentPath: string): string | null {
     for (const entry of entries) {
       const newPath = `${currentPath}/${entry.name}`
-      if (entry.name === targetName) {
+      if (entry.id === targetId) {
         return newPath
       }
-      // Search children regardless of is_dir flag (some leaf nodes may have children)
       if (entry.children && entry.children.length > 0) {
         const result = helper(entry.children, newPath)
         if (result) {
@@ -222,15 +236,7 @@ function findPath(data: FileEntry[], targetName: string): string | null {
   return result ? result.substring(1) : null
 }
 
-watch(source, (val) => {
-  const path = findPath(treeData.value, val)
-  emit('source', {
-    name: val,
-    path: path ?? '',
-  })
-})
-
-watch(pattern, () => {
+watch(effectivePattern, () => {
   if (!expand.value) {
     expand.value = true
   }
@@ -239,21 +245,12 @@ watch(pattern, () => {
 
 <template>
   <div class="h-full w-full flex flex-col p-2.5">
-    <NInput v-model:value="pattern" size="small" :placeholder="placeholder" clearable />
-    <div class="mt-1.5 flex gap-1">
-      <n-button size="tiny" quaternary @click="expandAll">
-        展开全部
-      </n-button>
-      <n-button size="tiny" quaternary @click="collapseAll">
-        收起全部
-      </n-button>
-    </div>
-    <div class="mt-1.5 min-h-0 flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-y-auto">
       <NTree
         :key="treeKey"
         class="compact-tree"
         :indent="10"
-        :pattern="pattern"
+        :pattern="effectivePattern"
         show-line
         :override-default-node-click-behavior="override"
         :data="treeData"
