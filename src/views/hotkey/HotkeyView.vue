@@ -445,7 +445,7 @@ onUnmounted(() => {
         </div>
 
         <div class="mt-3 text-center text-[10px]" style="color: var(--ink-muted)">
-          点击热键输入框后按下键盘即可录入 · macOS 需授权辅助功能
+          点击热键输入框后按下键盘即可录入 · 按键模拟仅 Windows 生效
           <a class="cursor-pointer" style="color: var(--indigo)" @click="helpExpanded = !helpExpanded">
             {{ helpExpanded ? '收起 ▴' : '更多说明 ▾' }}
           </a>
@@ -460,10 +460,10 @@ onUnmounted(() => {
             控制任务（Windows 与 macOS 均支持）。
           </p>
           <p class="mt-1">
-            2. 软件最小化或在后台时同样生效，请避免与系统或其他软件热键冲突；macOS 需在「系统设置 → 隐私与安全性 → 辅助功能」中允许应用控制键盘。
+            2. 软件最小化或在后台时同样生效；若热键被系统或其他软件占用，保存时会注册失败并提示，请换用其他按键。
           </p>
           <p class="mt-1">
-            3. 支持字母、数字、功能键、小键盘、方向键、修饰键、媒体键等。
+            3. 开始/结束热键支持组合键（如 Ctrl+Alt+F5）；触发按键支持字母、数字、F1-F12、方向键、小键盘等，且不能与开始/结束热键相同。
           </p>
         </div>
       </div>

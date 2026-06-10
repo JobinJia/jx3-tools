@@ -1,15 +1,16 @@
-//! Hotkey service using Interception driver
+//! Hotkey service
 //!
-//! This module provides:
-//! - Global hotkey detection via Interception driver
-//! - Automated key sequences with configurable intervals
-//! - Window-specific key sending support
+//! Global start/stop hotkeys are registered through tauri-plugin-global-shortcut
+//! (RegisterHotKey under the hood) — no kernel driver required. The previous
+//! Interception-based listener dynamically linked interception.dll, which
+//! crashed the whole app at load time on machines without the driver.
+//! The runner thread presses the trigger key via SendInput scancodes (global
+//! mode) or PostMessage (window mode).
 
 mod config;
+pub mod keymap;
 #[cfg(target_os = "windows")]
 mod keys;
-#[cfg(target_os = "windows")]
-mod listener;
 mod types;
 #[cfg(target_os = "windows")]
 pub mod window;
@@ -19,23 +20,22 @@ pub use types::{HotkeyConfig, HotkeyStatus};
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::error::{AppError, AppResult};
 use config::{ensure_app_config_dir, load_config, save_config, validate_config};
+use keymap::parse_shortcut;
 use types::HotkeyInner;
 
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "windows")]
-use std::thread;
-#[cfg(target_os = "windows")]
 use config::validate_runtime_config;
 #[cfg(target_os = "windows")]
 use keys::{simulate_key_press, sleep_with_interrupt};
-#[cfg(target_os = "windows")]
-use listener::{label_to_scancode, HotkeyEvent, HotkeyListener, ListenerConfig};
 #[cfg(target_os = "windows")]
 use types::Runner;
 
@@ -46,8 +46,8 @@ pub const HOTKEY_STATUS_EVENT: &str = "hotkey://status";
 pub struct HotkeyService {
     config_path: PathBuf,
     inner: Mutex<HotkeyInner>,
-    #[cfg(target_os = "windows")]
-    listener: Mutex<Option<HotkeyListener>>,
+    /// Shortcuts currently registered with the global-shortcut plugin
+    registered_shortcuts: Mutex<Vec<tauri_plugin_global_shortcut::Shortcut>>,
 }
 
 impl HotkeyService {
@@ -58,8 +58,7 @@ impl HotkeyService {
         Ok(Self {
             config_path,
             inner: Mutex::new(HotkeyInner::default()),
-            #[cfg(target_os = "windows")]
-            listener: Mutex::new(None),
+            registered_shortcuts: Mutex::new(Vec::new()),
         })
     }
 
@@ -75,15 +74,13 @@ impl HotkeyService {
             guard.status.last_error = None;
         }
 
-        // 注册 Interception 监听器
-        #[cfg(target_os = "windows")]
         match self.register_listener(app) {
-            Ok(_) => self.update_status(app, |status| {
+            Ok(()) => self.update_status(app, |status| {
                 status.registered = true;
                 status.last_error = None;
             }),
             Err(err) => {
-                log::warn!("注册热键监听器失败: {}", err);
+                log::warn!("注册热键失败: {err}");
                 self.update_status(app, |status| {
                     status.registered = false;
                     status.last_error = Some(err.to_string());
@@ -91,79 +88,85 @@ impl HotkeyService {
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
-        self.update_status(app, |status| {
-            status.registered = false;
-            status.last_error = Some("热键功能仅支持 Windows".into());
-        });
-
         Ok(())
     }
 
-    /// Register the Interception-based hotkey listener
-    #[cfg(target_os = "windows")]
+    /// Register start/stop hotkeys with the global-shortcut plugin,
+    /// replacing any previously registered ones
     fn register_listener(self: &Arc<Self>, app: &AppHandle) -> AppResult<()> {
         let config = self.get_config();
+
+        // 注销旧热键
+        {
+            let mut guard = self
+                .registered_shortcuts
+                .lock()
+                .map_err(|e| AppError::Hotkey(format!("热键注册表锁定失败: {e}")))?;
+            for shortcut in guard.drain(..) {
+                if let Err(err) = app.global_shortcut().unregister(shortcut) {
+                    log::warn!("注销旧热键失败: {err}");
+                }
+            }
+        }
 
         // 跳过空热键
         if config.start_hotkey.trim().is_empty() || config.stop_hotkey.trim().is_empty() {
             return Ok(());
         }
 
-        // 停止现有监听器
-        {
-            let mut guard = self.listener.lock()
-                .map_err(|e| AppError::Hotkey(format!("监听器锁定失败: {e}")))?;
-            if let Some(mut listener) = guard.take() {
-                listener.stop();
-            }
-        }
+        let start = parse_shortcut(&config.start_hotkey)?;
+        let stop = parse_shortcut(&config.stop_hotkey)?;
 
-        // 解析热键为扫描码
-        let start_scancode = label_to_scancode(&config.start_hotkey)?;
-        let stop_scancode = label_to_scancode(&config.stop_hotkey)?;
-
-        let listener_config = ListenerConfig {
-            start_scancode,
-            stop_scancode,
-        };
+        // 事件回调跑在主线程，任务启停派发到新线程，避免阻塞事件循环
+        let service = Arc::clone(self);
+        app.global_shortcut()
+            .on_shortcut(start, move |app, _shortcut, event| {
+                if event.state() != ShortcutState::Pressed {
+                    return;
+                }
+                let service = Arc::clone(&service);
+                let app = app.clone();
+                thread::spawn(move || {
+                    if let Err(err) = service.start_runner(&app) {
+                        log::error!("启动热键任务失败: {err}");
+                        service.update_status(&app, |status| {
+                            status.last_error = Some(err.to_string());
+                        });
+                    }
+                });
+            })
+            .map_err(|e| AppError::Hotkey(format!("注册开始热键失败: {e}")))?;
 
         let service = Arc::clone(self);
-        let app_handle = app.clone();
-
-        // Use a separate thread for handling hotkey events to avoid blocking
-        // the listener thread and potential deadlocks
-        let listener = HotkeyListener::new(listener_config, move |event| {
-            let service_clone = Arc::clone(&service);
-            let app_clone = app_handle.clone();
-
-            // Spawn a new thread to handle the event asynchronously
-            // This prevents blocking the listener thread which could cause deadlocks
-            thread::spawn(move || {
-                match event {
-                    HotkeyEvent::Start => {
-                        if let Err(err) = service_clone.start_runner(&app_clone) {
-                            log::error!("启动热键任务失败: {}", err);
-                            service_clone.update_status(&app_clone, |status| {
-                                status.last_error = Some(err.to_string());
-                            });
-                        }
-                    }
-                    HotkeyEvent::Stop => {
-                        service_clone.stop_runner(&app_clone);
-                    }
+        if let Err(e) = app
+            .global_shortcut()
+            .on_shortcut(stop, move |app, _shortcut, event| {
+                if event.state() != ShortcutState::Pressed {
+                    return;
                 }
-            });
-        })?;
+                let service = Arc::clone(&service);
+                let app = app.clone();
+                thread::spawn(move || service.stop_runner(&app));
+            })
+        {
+            // 回滚已注册的开始热键，避免半注册状态
+            let _ = app.global_shortcut().unregister(start);
+            return Err(AppError::Hotkey(format!("注册结束热键失败: {e}")));
+        }
 
-        let mut guard = self.listener.lock()
-            .map_err(|e| AppError::Hotkey(format!("监听器锁定失败: {e}")))?;
-        *guard = Some(listener);
+        {
+            let mut guard = self
+                .registered_shortcuts
+                .lock()
+                .map_err(|e| AppError::Hotkey(format!("热键注册表锁定失败: {e}")))?;
+            guard.push(start);
+            guard.push(stop);
+        }
 
         log::info!(
-            "Interception 热键监听器已注册: 开始={} (0x{:02X}), 停止={} (0x{:02X})",
-            config.start_hotkey, start_scancode,
-            config.stop_hotkey, stop_scancode
+            "全局热键已注册: 开始={}, 停止={}",
+            config.start_hotkey,
+            config.stop_hotkey
         );
 
         Ok(())
@@ -191,7 +194,7 @@ impl HotkeyService {
         }
     }
 
-    /// Save a new config and re-register listener
+    /// Save a new config and re-register hotkeys
     pub fn save_config(
         self: &Arc<Self>,
         app: &AppHandle,
@@ -226,17 +229,20 @@ impl HotkeyService {
 
         save_config(&self.config_path, &config)?;
 
-        // 重新注册监听器
-        #[cfg(target_os = "windows")]
-        {
-            self.register_listener(app)?;
-            self.update_status(app, |status| {
+        match self.register_listener(app) {
+            Ok(()) => self.update_status(app, |status| {
                 status.registered = true;
                 status.last_error = None;
-            });
+            }),
+            Err(err) => {
+                self.update_status(app, |status| {
+                    status.registered = false;
+                    status.last_error = Some(err.to_string());
+                });
+                return Err(err);
+            }
         }
 
-        self.emit_status(app);
         Ok(config)
     }
 
@@ -289,7 +295,7 @@ impl HotkeyService {
             runner.join();
         }
 
-        let (config, trigger_scancode) = {
+        let (config, trigger_key) = {
             let mut guard = self
                 .inner
                 .lock()
@@ -301,10 +307,10 @@ impl HotkeyService {
             }
 
             validate_runtime_config(&guard.config)?;
-            let scancode = label_to_scancode(&guard.config.trigger_key)?;
+            let key = keymap::resolve_key(&guard.config.trigger_key)?;
             guard.status.running = true;
             guard.status.last_error = None;
-            (guard.config.clone(), scancode)
+            (guard.config.clone(), key)
         };
 
         // 窗口模式额外验证
@@ -334,7 +340,7 @@ impl HotkeyService {
         let handle = thread::spawn(move || {
             run_key_loop(
                 &stop_clone,
-                trigger_scancode,
+                trigger_key,
                 config.interval_ms,
                 key_mode,
                 target_hwnd,
@@ -398,23 +404,23 @@ impl HotkeyService {
 #[cfg(target_os = "windows")]
 fn run_key_loop(
     stop_flag: &Arc<AtomicBool>,
-    trigger_scancode: u16,
+    trigger_key: keymap::KeyDef,
     interval_ms: u64,
     key_mode: types::KeyMode,
     target_hwnd: Option<u64>,
 ) {
     match key_mode {
         types::KeyMode::Global => {
-            // 全局模式：使用 Interception 或 SendInput
+            // 全局模式：SendInput 扫描码模拟
             while !stop_flag.load(Ordering::SeqCst) {
-                if let Err(err) = simulate_key_press(trigger_scancode) {
+                if let Err(err) = simulate_key_press(trigger_key) {
                     log::error!("热键触发失败: {}", err);
                 }
                 sleep_with_interrupt(stop_flag, interval_ms);
             }
         }
         types::KeyMode::Window => {
-            // 窗口模式：使用 PostMessage
+            // 窗口模式：PostMessage 发送虚拟键码
             let hwnd = match target_hwnd {
                 Some(h) => h,
                 None => {
@@ -423,27 +429,13 @@ fn run_key_loop(
                 }
             };
 
-            // 将扫描码转换为虚拟键码用于 PostMessage
-            let vk = scancode_to_vk(trigger_scancode);
-
             while !stop_flag.load(Ordering::SeqCst) {
-                if let Err(err) = window::send_key_to_window(hwnd, vk) {
+                if let Err(err) = window::send_key_to_window(hwnd, trigger_key.vk) {
                     log::error!("发送窗口按键失败: {}", err);
                     break;
                 }
                 sleep_with_interrupt(stop_flag, interval_ms);
             }
         }
-    }
-}
-
-/// Convert scancode to virtual key code (for window mode)
-#[cfg(target_os = "windows")]
-fn scancode_to_vk(scancode: u16) -> u16 {
-    unsafe {
-        windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
-            scancode as u32,
-            windows::Win32::UI::Input::KeyboardAndMouse::MAPVK_VSC_TO_VK,
-        ) as u16
     }
 }

@@ -1667,24 +1667,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "interception"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76b4dc218c6fdcf3c6e9807b892a1100396d936e56b391e533a71e3ad02b17b3"
-dependencies = [
- "bitflags 1.3.2",
- "interception-sys",
- "num_enum 0.5.11",
- "serde",
-]
-
-[[package]]
-name = "interception-sys"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abe875cf6439eb5d98f0fdbcc6128fdef4870c47e0f898735105ff77685dfcd1"
-
-[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1802,7 +1784,6 @@ version = "2.0.0"
 dependencies = [
  "dirs",
  "getrandom 0.3.4",
- "interception",
  "log",
  "mac_address",
  "serde",
@@ -2015,7 +1996,7 @@ dependencies = [
  "jni-sys 0.3.1",
  "log",
  "ndk-sys",
- "num_enum 0.7.6",
+ "num_enum",
  "raw-window-handle",
  "thiserror 1.0.69",
 ]
@@ -2065,33 +2046,12 @@ dependencies = [
 
 [[package]]
 name = "num_enum"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f646caf906c20226733ed5b1374287eb97e3c2a5c227ce668c1f2ce20ae57c9"
-dependencies = [
- "num_enum_derive 0.5.11",
-]
-
-[[package]]
-name = "num_enum"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
 dependencies = [
- "num_enum_derive 0.7.6",
+ "num_enum_derive",
  "rustversion",
-]
-
-[[package]]
-name = "num_enum_derive"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcbff9bc912032c62bf65ef1d5aea88983b420f4f839db1e9b0c281a25c9c799"
-dependencies = [
- "proc-macro-crate 1.3.1",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]

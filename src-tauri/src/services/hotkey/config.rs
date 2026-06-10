@@ -2,10 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{AppError, AppResult};
+use super::keymap;
 use super::types::{HotkeyConfig, KeyMode};
-
-#[cfg(target_os = "windows")]
-use super::listener::label_to_scancode;
 
 pub const CONFIG_FILE_NAME: &str = "hotkey_config.json";
 
@@ -52,19 +50,22 @@ pub fn validate_config(config: &HotkeyConfig) -> AppResult<()> {
     if config.stop_hotkey.trim().is_empty() {
         return Err(AppError::Hotkey("结束热键不能为空".into()));
     }
-    if config.start_hotkey.eq_ignore_ascii_case(&config.stop_hotkey) {
+    keymap::resolve_key(&config.trigger_key)
+        .map_err(|e| AppError::Hotkey(format!("触发按键格式无效: {e}")))?;
+    let start = keymap::parse_shortcut(&config.start_hotkey)
+        .map_err(|e| AppError::Hotkey(format!("开始热键格式无效: {e}")))?;
+    let stop = keymap::parse_shortcut(&config.stop_hotkey)
+        .map_err(|e| AppError::Hotkey(format!("结束热键格式无效: {e}")))?;
+
+    if start == stop {
         return Err(AppError::Hotkey("开始与结束热键不能相同".into()));
     }
 
-    // 使用 label_to_scancode 验证热键格式
-    #[cfg(target_os = "windows")]
-    {
-        label_to_scancode(&config.trigger_key)
-            .map_err(|e| AppError::Hotkey(format!("触发按键格式无效: {}", e)))?;
-        label_to_scancode(&config.start_hotkey)
-            .map_err(|e| AppError::Hotkey(format!("开始热键格式无效: {}", e)))?;
-        label_to_scancode(&config.stop_hotkey)
-            .map_err(|e| AppError::Hotkey(format!("结束热键格式无效: {}", e)))?;
+    // 触发按键被模拟按下时会命中同名热键，必须与开始/结束热键错开
+    if let Ok(trigger) = keymap::parse_shortcut(&config.trigger_key) {
+        if trigger == start || trigger == stop {
+            return Err(AppError::Hotkey("触发按键不能与开始/结束热键相同".into()));
+        }
     }
 
     // 窗口模式验证

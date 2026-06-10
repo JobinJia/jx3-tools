@@ -8,7 +8,7 @@ JX3-Tools is a Tauri v2 desktop application for the game JX3 (剑网三), primar
 
 - **Keyboard remapping (改键)** - Copy keyboard config directories between game accounts/characters inside the JX3 `userdata` folder
 - **MAC address management (MAC地址)** - View/randomize/restore the NIC MAC address via PowerShell + registry, with optional auto-restore on reboot
-- **Hotkey automation (按键)** - Global start/stop hotkeys (Interception driver) that toggle an auto key-press loop, either globally or sent to a specific window
+- **Hotkey automation (按键)** - Global start/stop hotkeys (tauri-plugin-global-shortcut) that toggle an auto key-press loop, either globally (SendInput scancodes) or sent to a specific window (PostMessage)
 
 ## Tech Stack
 
@@ -59,7 +59,7 @@ Components and icons are auto-imported: `unplugin-vue-components` (with `NaiveUi
 - `main.rs` - also a CLI: `jx3-tools --restore-mac` restores the MAC headlessly (used by the scheduled task)
 - `app_state.rs` - `AppState { Arc<HotkeyService>, Arc<MacService> }`, accessed by commands via `tauri::State`
 - `commands/` - thin IPC layer (`mac.rs`, `keyboard.rs`, `hotkey.rs`)
-- `services/hotkey/` - `listener.rs` (Interception-driver global key listener → start/stop events), `keys.rs` (key simulation), `window.rs` (window enumeration / PostMessage), `config.rs` (validation + JSON persistence), `types.rs`
+- `services/hotkey/` - `keymap.rs` (key label → scancode/VK/shortcut-string mapping, the single source of truth), `keys.rs` (SendInput scancode simulation, extended-key aware), `window.rs` (window enumeration / PostMessage), `config.rs` (validation + JSON persistence), `types.rs`. **Never add a dependency that links a non-system DLL** (the old Interception-based listener dynamically linked `interception.dll` and crashed the app at load time on machines without it)
 - `services/mac/` - PowerShell-driven (`scripts/*.ps1` assembled by `scripts.rs`): writes the `NetworkAddress` registry override, restarts the adapter, then **reads the MAC back to verify** the driver accepted it (rolls back + errors if not — many drivers, esp. wireless, silently ignore the override); restore clears overrides on all physical adapters (falls back to `PermanentAddress`); needs admin (errors map to `PermissionDenied`); no local state files — the registry and the Task Scheduler task `JX3ToolsMacRestore` (onlogon, `/rl HIGHEST`) are the source of truth
 - `services/keyboard.rs` - directory tree + copy. Encodes the JX3 userdata layout: tree depth 4 = a character dir (returned with `is_dir: false` to mark it selectable); `userpreferences` dirs are skipped; copy **deletes the target dir** before copying; symlinks are rejected/skipped
 - `error.rs` - `AppError` (thiserror) + `AppResult<T>`; user-facing messages are Chinese
@@ -68,11 +68,11 @@ Backend persistent state lives in `dirs::config_dir()/jx3-tools/` (`hotkey_confi
 
 ### Hotkey runtime model (the most intricate part)
 
-`HotkeyService` keeps a `Mutex<HotkeyInner>` (config + status + optional `Runner`). On init/save it (re)registers a `HotkeyListener` — a thread reading the Interception driver; the start/stop hotkeys are matched by scancode and dispatched to a **new thread** (never block the listener thread). The runner is a loop thread pressing the trigger key every `interval_ms` (20–60000ms validated), in `Global` mode (Interception simulate) or `Window` mode (PostMessage to a stored HWND, revalidated before start). Threads are stopped via `AtomicBool` + join **with 500ms timeout** (detach on timeout) — this pattern exists to fix real freeze bugs; keep it. Every status change is emitted to the frontend via `app.emit(HOTKEY_STATUS_EVENT)`.
+`HotkeyService` keeps a `Mutex<HotkeyInner>` (config + status + optional `Runner`). On init/save it (re)registers the start/stop shortcuts via `tauri-plugin-global-shortcut` (cross-platform; combos like `Ctrl+Alt+F5` supported); the handlers run on the event loop and dispatch start/stop to a **new thread** (never block the event loop). The runner is a loop thread pressing the trigger key every `interval_ms` (20–60000ms validated), in `Global` mode (Interception simulate) or `Window` mode (PostMessage to a stored HWND, revalidated before start). Threads are stopped via `AtomicBool` + join **with 500ms timeout** (detach on timeout) — this pattern exists to fix real freeze bugs; keep it. Every status change is emitted to the frontend via `app.emit(HOTKEY_STATUS_EVENT)`.
 
 ### Platform gating
 
-Hotkey and MAC mutation are Windows-only (`interception` + `windows` crates under `[target.'cfg(windows)'.dependencies]`). Non-Windows code paths are `#[cfg]`-gated stubs that return "仅支持 Windows" errors or empty lists — when touching gated code, make sure **both** cfg branches still compile (macOS dev machine builds the non-Windows side; CI builds the Windows side). Test real hotkey behavior on Windows only.
+Key simulation and MAC mutation are Windows-only (`windows` crate under `[target.'cfg(windows)'.dependencies]`); hotkey listening itself is cross-platform. Non-Windows code paths are `#[cfg]`-gated stubs that return "仅支持 Windows" errors or empty lists — when touching gated code, make sure **both** cfg branches still compile (macOS dev machine builds the non-Windows side; CI builds the Windows side). Test real hotkey behavior on Windows only.
 
 ### Tauri Commands (IPC)
 
