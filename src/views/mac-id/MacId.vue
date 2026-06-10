@@ -58,7 +58,7 @@ onMounted(() => {
             </n-button>
           </div>
           <div class="mt-3 text-[10px]" style="color: var(--ink-muted)">
-            修改/还原需以管理员身份运行，网卡会短暂重启断网
+            修改 / 还原时网卡会短暂重启断网，属正常现象
           </div>
         </div>
 

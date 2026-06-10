@@ -57,6 +57,7 @@ Components and icons are auto-imported: `unplugin-vue-components` (with `NaiveUi
 
 - `lib.rs` - builds the app: panic hook, plugins, `AppState::initialize` in setup, all commands in `invoke_handler`
 - `main.rs` - also a CLI: `jx3-tools --restore-mac` restores the MAC headlessly (used by the scheduled task)
+- `build.rs` + `jx3-tools.manifest` - embeds a custom Windows manifest that requests `requireAdministrator` (UAC prompt every launch). Required for MAC mutation **and** so global key simulation works against JX3's elevated anti-cheat (Windows UIPI drops synthesized input from a lower-integrity process to a higher-integrity foreground window). The manifest fully replaces Tauri's default, so it must also carry DPI awareness, supportedOS, and Common-Controls v6 (the dialog plugin needs it)
 - `app_state.rs` - `AppState { Arc<HotkeyService>, Arc<MacService> }`, accessed by commands via `tauri::State`
 - `commands/` - thin IPC layer (`mac.rs`, `keyboard.rs`, `hotkey.rs`)
 - `services/hotkey/` - `keymap.rs` (key label → scancode/VK/shortcut-string mapping, the single source of truth), `keys.rs` (SendInput scancode simulation, extended-key aware), `window.rs` (window enumeration / PostMessage), `config.rs` (validation + JSON persistence), `types.rs`. **Never add a dependency that links a non-system DLL** (the old Interception-based listener dynamically linked `interception.dll` and crashed the app at load time on machines without it)
