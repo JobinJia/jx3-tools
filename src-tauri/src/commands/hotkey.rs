@@ -71,21 +71,21 @@ pub fn check_window_valid(_hwnd: u64) -> bool {
     false
 }
 
-/// 定位随包分发的 Interception 驱动安装器
+/// 定位随包分发的已签名键盘驱动 keyboard.sys
 #[cfg(target_os = "windows")]
-fn resolve_driver_installer(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+fn resolve_driver_sys(app: &AppHandle) -> AppResult<std::path::PathBuf> {
     use tauri::path::BaseDirectory;
     use tauri::Manager;
     app.path()
         .resolve(
-            "resources/interception/install-interception.exe",
+            "resources/interception/keyboard.sys",
             BaseDirectory::Resource,
         )
-        .map_err(|e| AppError::Hotkey(format!("定位驱动安装器失败: {e}")))
+        .map_err(|e| AppError::Hotkey(format!("定位键盘驱动文件失败: {e}")))
 }
 
-/// 安装按键驱动：官方安装器全装后立即移除鼠标过滤器，需重启生效。
-/// 安装器运行约数秒，spawn_blocking 避免阻塞主线程
+/// 安装按键驱动（只装键盘：拷 keyboard.sys + 注册服务 + 加键盘 UpperFilters），
+/// 需重启生效。涉及文件拷贝与注册表写入，spawn_blocking 避免阻塞主线程
 #[cfg(target_os = "windows")]
 #[command]
 pub async fn install_hotkey_driver(
@@ -93,9 +93,9 @@ pub async fn install_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: install_hotkey_driver");
-    let installer = resolve_driver_installer(&app)?;
+    let driver_sys = resolve_driver_sys(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        crate::services::hotkey::driver::install(&installer)
+        crate::services::hotkey::driver::install(&driver_sys)
     })
     .await
     .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
@@ -111,7 +111,7 @@ pub async fn install_hotkey_driver() -> AppResult<HotkeyStatus> {
     Err(AppError::Hotkey("仅支持 Windows 平台".into()))
 }
 
-/// 卸载按键驱动（需重启生效）
+/// 卸载按键驱动（删键盘过滤器/服务/文件并清理旧版鼠标残留），需重启生效
 #[cfg(target_os = "windows")]
 #[command]
 pub async fn uninstall_hotkey_driver(
@@ -119,12 +119,9 @@ pub async fn uninstall_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: uninstall_hotkey_driver");
-    let installer = resolve_driver_installer(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::services::hotkey::driver::uninstall(&installer)
-    })
-    .await
-    .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
+    tauri::async_runtime::spawn_blocking(crate::services::hotkey::driver::uninstall)
+        .await
+        .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
     let service = state.hotkey();
     service.update_status(&app, |_| {});
     Ok(service.get_status())

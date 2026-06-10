@@ -1,17 +1,19 @@
-//! Interception 驱动安装 / 检测 / 鼠标过滤器清理
+//! Interception 键盘驱动安装 / 卸载 / 状态检测（**只装键盘，从不碰鼠标**）
 //!
-//! `install-interception.exe /install` 会同时安装键盘和鼠标两个 class 过滤驱动，
-//! 且没有只装键盘的参数。鼠标过滤器曾导致用户鼠标瘫痪（UpperFilters 引用的过滤
-//! 器加载失败时，整个鼠标设备栈都起不来），而本工具只需要键盘注入。
+//! 历史教训：官方 `install-interception.exe /install` 会**同时**装键盘和鼠标两个
+//! class 过滤驱动，没有只装键盘的开关；鼠标过滤器曾把用户鼠标搞瘫（成功加载后
+//! 在转发 IRP 时对某些鼠标失灵）。本工具只需要键盘注入，因此**不再调用官方安装
+//! 器**，改为自己手动只做键盘那一半：
+//!   1. 把随包的已签名 `keyboard.sys` 拷到 `System32\drivers\`
+//!   2. 用 SCM 注册内核驱动服务 `keyboard`（DEMAND_START + ERROR_NORMAL）
+//!   3. 往**键盘** class（GUID `{4D36E96B-…}`）的 `UpperFilters` 加入 `keyboard`
+//! 全程不写任何 `mouse` 服务 / `mouse.sys` / 鼠标 class，鼠标事故链根本不存在。
 //!
-//! 因此安装流程固定为：运行官方安装器 → **重启之前**立即从 Mouse class 的
-//! `UpperFilters` 移除 `mouse` 项（过滤器只在设备栈重建时加载，重启前移除即
-//! 从未生效）。清理失败则自动 `/uninstall` 回滚，绝不让带鼠标过滤器的注册表
-//! 状态活到重启。
+//! 安全要点：`ErrorControl=SERVICE_ERROR_NORMAL` 保证万一驱动加载失败，PnP 会
+//! 跳过该过滤器继续启动键盘设备——最坏只是「注入不生效」，键盘本身照常可用。
 //!
-//! 注意：移除鼠标过滤器后 interception.dll 的 `create_context` 必然失败（它要
-//! 求键盘+鼠标全部 20 个设备可打开），所以按键注入不走 dll，由 `keys.rs` 直连
-//! `\\.\interception0N` 键盘设备。
+//! 注入侧不用 `interception.dll`（它的 `create_context` 要求 20 个键鼠设备全开，
+//! 只装键盘必然失败），由 `keys.rs` 直连 `\\.\interception0N` 键盘设备完成。
 
 use serde::Serialize;
 
@@ -55,32 +57,34 @@ pub use windows_impl::{install, mouse_filter_present, registry_state, remove_mou
 
 #[cfg(target_os = "windows")]
 mod windows_impl {
-    use std::os::windows::process::CommandExt;
-    use std::path::Path;
-    use std::process::Command;
+    use std::path::{Path, PathBuf};
 
     use windows::core::PCWSTR;
-    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR};
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SERVICE_EXISTS, ERROR_SUCCESS, WIN32_ERROR};
     use windows::Win32::System::Registry::{
-        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE,
-        KEY_QUERY_VALUE, KEY_SET_VALUE, REG_MULTI_SZ, REG_VALUE_TYPE,
+        RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
+        HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_MULTI_SZ, REG_SAM_FLAGS,
+        REG_VALUE_TYPE,
+    };
+    use windows::Win32::System::Services::{
+        CloseServiceHandle, CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW, SC_HANDLE,
+        SC_MANAGER_CREATE_SERVICE, SERVICE_ALL_ACCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
+        SERVICE_KERNEL_DRIVER,
     };
 
     use super::{encode_multi_sz, parse_multi_sz, DriverState};
     use crate::error::{AppError, AppResult};
 
-    /// Interception 安装器写入的鼠标 class 注册表键（GUID 为系统固定值）
-    const MOUSE_CLASS_KEY: &str =
-        r"SYSTEM\CurrentControlSet\Control\Class\{4D36E96F-E325-11CE-BFC1-08002BE10318}";
-    /// 键盘 class 注册表键
+    /// 键盘 class 注册表键（GUID 为系统固定值）
     const KEYBOARD_CLASS_KEY: &str =
         r"SYSTEM\CurrentControlSet\Control\Class\{4D36E96B-E325-11CE-BFC1-08002BE10318}";
+    /// 鼠标 class 注册表键（仅用于检测/清理旧版遗留，安装时绝不写入）
+    const MOUSE_CLASS_KEY: &str =
+        r"SYSTEM\CurrentControlSet\Control\Class\{4D36E96F-E325-11CE-BFC1-08002BE10318}";
     const UPPER_FILTERS: &str = "UpperFilters";
-    /// Interception 安装器注册的服务名就叫 mouse / keyboard（已从安装器二进制确认）
-    const MOUSE_FILTER: &str = "mouse";
+    /// 过滤驱动服务名 = .sys 基名 = UpperFilters 项名，三者必须一致
     const KEYBOARD_FILTER: &str = "keyboard";
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const MOUSE_FILTER: &str = "mouse";
 
     fn to_wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -90,10 +94,12 @@ mod windows_impl {
         AppError::Hotkey(format!("{action}失败（注册表错误码 {}）", code.0))
     }
 
+    // ───────────────────────── 注册表 UpperFilters ─────────────────────────
+
     struct RegKey(HKEY);
 
     impl RegKey {
-        fn open(subkey: &str, access: windows::Win32::System::Registry::REG_SAM_FLAGS) -> Result<Option<Self>, AppError> {
+        fn open(subkey: &str, access: REG_SAM_FLAGS) -> Result<Option<Self>, AppError> {
             let wide = to_wide(subkey);
             let mut hkey = HKEY::default();
             let res = unsafe {
@@ -167,15 +173,23 @@ mod windows_impl {
         Ok(Some(parse_multi_sz(&buf)))
     }
 
-    /// 覆写 class 键的 UpperFilters
+    /// 覆写 class 键的 UpperFilters（entries 为空则删除该值）
     fn write_upper_filters(class_key: &str, entries: &[String]) -> AppResult<()> {
         let key = RegKey::open(class_key, KEY_QUERY_VALUE | KEY_SET_VALUE)?
             .ok_or_else(|| AppError::Hotkey(format!("注册表键不存在: {class_key}")))?;
         let name = to_wide(UPPER_FILTERS);
+
+        if entries.is_empty() {
+            let res = unsafe { RegDeleteValueW(key.0, PCWSTR(name.as_ptr())) };
+            if res != ERROR_SUCCESS && res != ERROR_FILE_NOT_FOUND {
+                return Err(reg_err("删除 UpperFilters", res));
+            }
+            return Ok(());
+        }
+
         let buf = encode_multi_sz(entries);
-        let bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(buf.as_ptr().cast(), buf.len() * 2)
-        };
+        let bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(buf.as_ptr().cast(), buf.len() * 2) };
         let res = unsafe {
             RegSetValueExW(key.0, PCWSTR(name.as_ptr()), None, REG_MULTI_SZ, Some(bytes))
         };
@@ -187,6 +201,36 @@ mod windows_impl {
 
     fn filters_contain(filters: &[String], name: &str) -> bool {
         filters.iter().any(|f| f.eq_ignore_ascii_case(name))
+    }
+
+    /// 在 class 的 UpperFilters 末尾加入指定过滤器（已存在则不动）
+    fn add_filter(class_key: &str, filter: &str) -> AppResult<()> {
+        let mut filters = read_upper_filters(class_key)?.unwrap_or_default();
+        if filters_contain(&filters, filter) {
+            return Ok(());
+        }
+        filters.push(filter.to_string());
+        write_upper_filters(class_key, &filters)?;
+        log::info!("已向 {class_key} UpperFilters 加入 {filter}");
+        Ok(())
+    }
+
+    /// 从 class 的 UpperFilters 移除指定过滤器（其余项原样保留）
+    fn remove_filter(class_key: &str, filter: &str) -> AppResult<()> {
+        let filters = match read_upper_filters(class_key)? {
+            Some(filters) => filters,
+            None => return Ok(()),
+        };
+        if !filters_contain(&filters, filter) {
+            return Ok(());
+        }
+        let kept: Vec<String> = filters
+            .into_iter()
+            .filter(|f| !f.eq_ignore_ascii_case(filter))
+            .collect();
+        write_upper_filters(class_key, &kept)?;
+        log::info!("已从 {class_key} UpperFilters 移除 {filter}，保留: {kept:?}");
+        Ok(())
     }
 
     /// 鼠标 class 的 UpperFilters 是否残留 interception 鼠标过滤器
@@ -201,7 +245,12 @@ mod windows_impl {
         }
     }
 
-    /// 仅凭注册表判断键盘过滤器的安装状态（驱动是否真正加载由 keys.rs 判断）
+    /// 移除残留的 interception 鼠标过滤器（旧版安装包全装遗留）
+    pub fn remove_mouse_filter() -> AppResult<()> {
+        remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER)
+    }
+
+    /// 仅凭注册表判断键盘过滤器的安装状态（驱动是否真加载由 keys.rs 判断）
     pub fn registry_state() -> DriverState {
         match read_upper_filters(KEYBOARD_CLASS_KEY) {
             Ok(Some(filters)) if filters_contain(&filters, KEYBOARD_FILTER) => {
@@ -215,79 +264,164 @@ mod windows_impl {
         }
     }
 
-    /// 从鼠标 class 的 UpperFilters 移除 interception 鼠标过滤器。
-    /// 只删除指定名字的项，其余过滤器（如 mouclass）原样保留。
-    pub fn remove_mouse_filter() -> AppResult<()> {
-        let filters = match read_upper_filters(MOUSE_CLASS_KEY)? {
-            Some(filters) => filters,
-            None => return Ok(()),
-        };
-        if !filters_contain(&filters, MOUSE_FILTER) {
-            return Ok(());
+    // ───────────────────────── 驱动文件 ─────────────────────────
+
+    /// `%SystemRoot%\System32\drivers\keyboard.sys` 的目标路径
+    fn driver_dest_path() -> PathBuf {
+        let system_root = std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        system_root
+            .join("System32")
+            .join("drivers")
+            .join("keyboard.sys")
+    }
+
+    fn copy_driver(src: &Path) -> AppResult<()> {
+        if !src.exists() {
+            return Err(AppError::Hotkey(format!(
+                "找不到驱动文件: {}",
+                src.display()
+            )));
         }
-        let kept: Vec<String> = filters
-            .into_iter()
-            .filter(|f| !f.eq_ignore_ascii_case(MOUSE_FILTER))
-            .collect();
-        if kept.is_empty() {
-            // 正常机器上至少还有 mouclass；空列表说明环境异常，拒绝写入以免搞坏鼠标
-            return Err(AppError::Hotkey(
-                "移除鼠标过滤器后 UpperFilters 将为空，已中止（请手动检查注册表）".into(),
-            ));
-        }
-        write_upper_filters(MOUSE_CLASS_KEY, &kept)?;
-        log::info!("已从鼠标 UpperFilters 移除 interception 过滤器，保留: {kept:?}");
+        let dest = driver_dest_path();
+        std::fs::copy(src, &dest).map_err(|e| {
+            AppError::Hotkey(format!("拷贝驱动到 {} 失败: {e}", dest.display()))
+        })?;
+        log::info!("驱动已拷贝到 {}", dest.display());
         Ok(())
     }
 
-    fn run_installer(installer: &Path, arg: &str) -> AppResult<()> {
-        if !installer.exists() {
-            return Err(AppError::Hotkey(format!(
-                "找不到驱动安装器: {}",
-                installer.display()
-            )));
+    fn delete_driver_file() {
+        let dest = driver_dest_path();
+        match std::fs::remove_file(&dest) {
+            Ok(()) => log::info!("已删除驱动文件 {}", dest.display()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => log::warn!("删除驱动文件 {} 失败: {e}", dest.display()),
         }
-        let output = Command::new(installer)
-            .arg(arg)
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| AppError::Hotkey(format!("运行驱动安装器失败: {e}")))?;
-        if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(AppError::Hotkey(format!(
-                "驱动安装器执行失败（{arg}，退出码 {:?}）: {}",
-                output.status.code(),
-                stdout.trim()
-            )));
-        }
-        Ok(())
     }
 
-    /// 安装按键驱动：官方安装器全装后立即移除鼠标过滤器（重启前移除 = 从未生效）。
-    /// 清理失败立刻回滚卸载，绝不带着鼠标过滤器进入下一次重启。
-    pub fn install(installer: &Path) -> AppResult<()> {
-        run_installer(installer, "/install")?;
-        log::info!("Interception 驱动安装完成，开始移除鼠标过滤器");
+    // ───────────────────────── SCM 服务 ─────────────────────────
 
-        if let Err(err) = remove_mouse_filter() {
-            log::error!("移除鼠标过滤器失败，回滚卸载驱动: {err}");
-            match run_installer(installer, "/uninstall") {
-                Ok(()) => Err(AppError::Hotkey(format!(
-                    "安装后清理鼠标过滤器失败，已自动卸载驱动（{err}）。请勿重启前重试安装"
-                ))),
-                Err(rollback_err) => Err(AppError::Hotkey(format!(
-                    "清理鼠标过滤器失败（{err}），且回滚卸载也失败（{rollback_err}）。\
-                     请勿重启电脑，先以管理员运行 install-interception.exe /uninstall"
-                ))),
+    struct ScHandle(SC_HANDLE);
+
+    impl Drop for ScHandle {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseServiceHandle(self.0);
             }
-        } else {
-            Ok(())
         }
     }
 
-    /// 卸载按键驱动（官方 /uninstall 会清理键盘+鼠标两侧的注册表与驱动文件）
-    pub fn uninstall(installer: &Path) -> AppResult<()> {
-        run_installer(installer, "/uninstall")
+    /// 注册内核驱动服务 `keyboard`（已存在视为成功）
+    fn create_keyboard_service() -> AppResult<()> {
+        let scm = unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CREATE_SERVICE) }
+            .map_err(|e| AppError::Hotkey(format!("打开服务管理器失败: {e}")))?;
+        let scm = ScHandle(scm);
+
+        let name = to_wide(KEYBOARD_FILTER);
+        // 内核驱动 ImagePath 缺省即 \SystemRoot\System32\drivers\<服务名>.sys，
+        // 这里显式给出以免歧义
+        let bin_path = to_wide(r"\SystemRoot\System32\drivers\keyboard.sys");
+
+        let res = unsafe {
+            CreateServiceW(
+                scm.0,
+                PCWSTR(name.as_ptr()),
+                PCWSTR(name.as_ptr()),
+                SERVICE_ALL_ACCESS,
+                SERVICE_KERNEL_DRIVER,
+                SERVICE_DEMAND_START,
+                SERVICE_ERROR_NORMAL,
+                PCWSTR(bin_path.as_ptr()),
+                PCWSTR::null(),
+                None,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                PCWSTR::null(),
+            )
+        };
+
+        match res {
+            Ok(svc) => {
+                let _ = ScHandle(svc);
+                log::info!("已注册键盘驱动服务");
+                Ok(())
+            }
+            Err(e) if e.code() == ERROR_SERVICE_EXISTS.to_hresult() => {
+                log::info!("键盘驱动服务已存在，跳过创建");
+                Ok(())
+            }
+            Err(e) => Err(AppError::Hotkey(format!("注册键盘驱动服务失败: {e}"))),
+        }
+    }
+
+    /// 删除指定内核驱动服务（不存在视为成功）
+    fn delete_service(service: &str) -> AppResult<()> {
+        let scm = unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CREATE_SERVICE) }
+            .map_err(|e| AppError::Hotkey(format!("打开服务管理器失败: {e}")))?;
+        let scm = ScHandle(scm);
+
+        let name = to_wide(service);
+        // SERVICE_ALL_ACCESS 已含 DELETE 权限
+        let svc = match unsafe { OpenServiceW(scm.0, PCWSTR(name.as_ptr()), SERVICE_ALL_ACCESS) } {
+            Ok(svc) => ScHandle(svc),
+            // 服务不存在
+            Err(_) => return Ok(()),
+        };
+        unsafe { DeleteService(svc.0) }
+            .map_err(|e| AppError::Hotkey(format!("删除服务 {service} 失败: {e}")))?;
+        log::info!("已删除驱动服务 {service}");
+        Ok(())
+    }
+
+    // ───────────────────────── 安装 / 卸载 ─────────────────────────
+
+    /// 安装按键驱动（**只装键盘**）：拷 keyboard.sys → 注册服务 → 加键盘 UpperFilters。
+    /// 任一步失败立即回滚已完成的步骤，绝不写任何鼠标相关项。需重启后生效。
+    pub fn install(driver_sys: &Path) -> AppResult<()> {
+        copy_driver(driver_sys)?;
+
+        if let Err(err) = create_keyboard_service() {
+            delete_driver_file();
+            return Err(err);
+        }
+
+        if let Err(err) = add_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER) {
+            log::error!("加键盘 UpperFilters 失败，回滚服务与驱动文件: {err}");
+            let _ = delete_service(KEYBOARD_FILTER);
+            delete_driver_file();
+            return Err(err);
+        }
+
+        log::info!("键盘驱动安装完成，重启电脑后生效");
+        Ok(())
+    }
+
+    /// 卸载按键驱动：移除键盘 UpperFilters → 删服务 → 删驱动文件；
+    /// 顺带清理旧版全装可能残留的鼠标过滤器/服务/文件。需重启后彻底生效。
+    pub fn uninstall() -> AppResult<()> {
+        // 键盘侧：先摘过滤器引用，再删服务与文件
+        remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
+        delete_service(KEYBOARD_FILTER)?;
+        delete_driver_file();
+
+        // 旧版遗留鼠标侧：尽力清理，不影响键盘卸载结果
+        if let Err(err) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
+            log::warn!("清理残留鼠标过滤器失败: {err}");
+        }
+        if let Err(err) = delete_service(MOUSE_FILTER) {
+            log::warn!("清理残留鼠标服务失败: {err}");
+        }
+        let mouse_sys = driver_dest_path().with_file_name("mouse.sys");
+        if mouse_sys.exists() {
+            if let Err(e) = std::fs::remove_file(&mouse_sys) {
+                log::warn!("删除残留 mouse.sys 失败: {e}");
+            }
+        }
+
+        log::info!("键盘驱动卸载完成，重启电脑后彻底生效");
+        Ok(())
     }
 }
 
@@ -301,8 +435,8 @@ mod tests {
 
     #[test]
     fn parse_multi_sz_splits_entries() {
-        let buf = multi_sz(&["mouse", "mouclass"]);
-        assert_eq!(parse_multi_sz(&buf), vec!["mouse", "mouclass"]);
+        let buf = multi_sz(&["keyboard", "kbdclass"]);
+        assert_eq!(parse_multi_sz(&buf), vec!["keyboard", "kbdclass"]);
     }
 
     #[test]
@@ -313,10 +447,10 @@ mod tests {
 
     #[test]
     fn encode_multi_sz_double_nul_terminated() {
-        let buf = multi_sz(&["mouclass"]);
+        let buf = multi_sz(&["keyboard"]);
         assert_eq!(buf.last(), Some(&0));
         assert_eq!(buf[buf.len() - 2], 0);
-        assert_eq!(parse_multi_sz(&buf), vec!["mouclass"]);
+        assert_eq!(parse_multi_sz(&buf), vec!["keyboard"]);
     }
 
     #[test]

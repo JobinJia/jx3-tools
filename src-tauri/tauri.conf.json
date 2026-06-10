@@ -34,7 +34,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/interception/*"
+      "resources/interception/keyboard.sys",
+      "resources/interception/LICENSE-LGPL-3.0.txt"
     ],
     "windows": {
       "nsis": {
