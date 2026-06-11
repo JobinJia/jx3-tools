@@ -59,8 +59,11 @@ pub fn open_folder(path: &str) -> AppResult<()> {
 
     #[cfg(target_os = "windows")]
     {
-        if let Err(e) = Command::new("explorer").arg(path).spawn() {
-            log::error!("无法打开文件夹 {}: {}", path, e);
+        // explorer.exe 不认正斜杠：前端拼的路径是 basePath\...userdata/账号/角色 混合分隔符，
+        // 不归一化会回退打开默认目录（文档）而不是目标目录
+        let normalized = path.replace('/', "\\");
+        if let Err(e) = Command::new("explorer").arg(&normalized).spawn() {
+            log::error!("无法打开文件夹 {}: {}", normalized, e);
         }
     }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { useMac } from '@/composables/useMac'
 
@@ -19,8 +19,6 @@ const {
   setAutoRestore,
 } = useMac()
 
-const helpExpanded = ref(false)
-
 onMounted(() => {
   fetchMacAddress()
 })
@@ -28,7 +26,7 @@ onMounted(() => {
 
 <template>
   <div class="h-full px-5 py-3.5">
-    <PageHeader title="MAC地址" description="查看、随机修改与还原网卡物理地址" />
+    <PageHeader title="MAC地址" />
 
     <n-alert v-if="error" type="error" :title="error" class="mx-auto mb-3 max-w-[430px]" />
 
@@ -57,40 +55,13 @@ onMounted(() => {
               还原地址
             </n-button>
           </div>
-          <div class="mt-3 text-[10px]" style="color: var(--ink-muted)">
-            修改 / 还原时网卡会短暂重启断网，属正常现象
-          </div>
         </div>
 
         <div class="paper-card mt-3 flex items-center justify-between px-4 py-3">
-          <div>
-            <div class="text-xs" style="color: var(--ink)">
-              重启自动还原
-            </div>
-            <div class="mt-0.5 text-[10px]" style="color: var(--ink-muted)">
-              开机时自动恢复原始地址（计划任务）
-            </div>
+          <div class="text-xs" style="color: var(--ink)">
+            重启自动还原
           </div>
           <n-switch v-model:value="autoRestoreEnabled" @update:value="setAutoRestore" />
-        </div>
-
-        <div class="mt-3 text-center text-[10px]" style="color: var(--ink-muted)">
-          什么是 MAC 地址？为什么要修改？
-          <a class="cursor-pointer" style="color: var(--indigo)" @click="helpExpanded = !helpExpanded">
-            {{ helpExpanded ? '收起说明 ▴' : '展开说明 ▾' }}
-          </a>
-        </div>
-        <div
-          v-if="helpExpanded"
-          class="paper-card mt-2 p-4 text-xs leading-relaxed"
-          style="color: var(--ink-secondary)"
-        >
-          <p><b>什么是MAC地址？</b></p>
-          <p>MAC地址是网络设备的唯一标识符，由48位二进制数字组成，通常表示为12个十六进制数字。</p>
-          <p class="mt-2">
-            <b>为什么要修改MAC地址？</b>
-          </p>
-          <p>修改MAC地址可用于增强隐私保护、绕过基于MAC地址的网络访问控制等。请确保您的操作符合相关法律法规。</p>
         </div>
       </div>
     </n-spin>

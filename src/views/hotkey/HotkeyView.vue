@@ -334,7 +334,7 @@ onUnmounted(() => {
 
 <template>
   <div class="h-full px-5 py-3.5">
-    <PageHeader title="按键" description="全局热键控制的自动按键">
+    <PageHeader title="按键">
       <template #extra>
         <div class="status-badge" :class="statusClass">
           <span class="dot" />
@@ -536,8 +536,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div class="mt-3 text-center text-[10px]" style="color: var(--ink-muted)">
-          点击热键输入框后按下键盘即可录入 · 按键模拟仅 Windows 生效
+        <div class="mt-3 text-center text-[10px]">
           <a class="cursor-pointer" style="color: var(--indigo)" @click="helpExpanded = !helpExpanded">
             {{ helpExpanded ? '收起 ▴' : '更多说明 ▾' }}
           </a>

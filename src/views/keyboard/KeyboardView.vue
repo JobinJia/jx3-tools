@@ -86,7 +86,7 @@ function selectTemplate(template: KeyboardTemplate) {
     </div>
 
     <template v-else>
-      <PageHeader title="改键" description="在账号与角色之间复制键位配置">
+      <PageHeader title="改键">
         <template #extra>
           <n-button size="tiny" quaternary class="mr-2" @click="cloudVisible = true">
             ☁ 云同步

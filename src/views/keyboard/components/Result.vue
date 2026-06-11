@@ -27,7 +27,6 @@ async function handleCopy() {
       <span class="slot-chip slot-target" :class="{ 'slot-empty': !userSelect.target }">
         目 · {{ userSelect.target || '未选择' }}
       </span>
-      <span class="text-[10px]" style="color: var(--ink-muted)">目标现有键位将被覆盖，不可撤销</span>
     </div>
 
     <div class="ml-auto flex items-center gap-4">
