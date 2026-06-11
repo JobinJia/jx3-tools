@@ -57,6 +57,6 @@ jobs:
           name: jx3-tools-windows-${{ github.run_number }}
           path: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/app.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/SaltedFish.exe
           if-no-files-found: error
           retention-days: 7

@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/jiabinbin/jx3-tools"
 edition = "2021"
 rust-version = "1.77.2"
-default-run = "app"
+default-run = "SaltedFish"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -53,5 +53,5 @@ zip = { version = "2", default-features = false, features = [ "deflate" ] }
 url = "2"
 
 [[bin]]
-name = "app"
+name = "SaltedFish"
 path = "src/main.rs"
