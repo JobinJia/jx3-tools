@@ -54,7 +54,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: jx3-tools-windows-${{ github.run_number }}
+          name: SaltedFish-windows-${{ github.run_number }}
           path: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
             src-tauri/target/x86_64-pc-windows-msvc/release/SaltedFish.exe

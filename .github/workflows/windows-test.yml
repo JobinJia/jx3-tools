@@ -73,7 +73,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'JX3-Tools ${{ github.ref_name }}'
+          releaseName: 'SaltedFish ${{ github.ref_name }}'
           releaseBody: |
             ## 功能
             - 改键功能：复制键位配置

@@ -83,7 +83,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ env.VERSION }}
-          releaseName: 'JX3-Tools ${{ env.VERSION }}'
+          releaseName: 'SaltedFish ${{ env.VERSION }}'
           releaseBody: Windows版本发布
           releaseDraft: false
           prerelease: false
