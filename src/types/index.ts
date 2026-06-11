@@ -1,3 +1,4 @@
+export * from './cloud'
 export * from './common'
 export * from './hotkey'
 export * from './keyboard'

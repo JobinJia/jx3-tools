@@ -180,7 +180,7 @@ impl KeyboardService {
         Ok(entries)
     }
 
-    fn copy_dir_all(src: &Path, dst: &Path) -> AppResult<()> {
+    pub(crate) fn copy_dir_all(src: &Path, dst: &Path) -> AppResult<()> {
         if !src.is_dir() {
             return Err(AppError::Keyboard(format!(
                 "源路径不是目录: {}",

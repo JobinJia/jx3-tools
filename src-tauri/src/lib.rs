@@ -69,6 +69,13 @@ pub fn run() {
             cp_source_to_target,
             sync_plugin_config,
             open_folder,
+            // Cloud sync commands
+            get_cloud_config,
+            save_cloud_config,
+            test_cloud_connection,
+            cloud_upload_role,
+            cloud_list_roles,
+            cloud_download_role,
             // Hotkey commands
             get_hotkey_config,
             get_hotkey_status,

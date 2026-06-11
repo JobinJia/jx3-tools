@@ -116,7 +116,7 @@ impl PluginDataService {
     }
 
     /// 从角色路径取（角色名, 服务器名）：userdata/<账号>/<区服>/<服务器>/<角色>
-    fn role_identity(role_path: &Path) -> AppResult<(String, String)> {
+    pub(crate) fn role_identity(role_path: &Path) -> AppResult<(String, String)> {
         let name = role_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -132,7 +132,7 @@ impl PluginDataService {
     }
 
     /// 从角色路径向上找到 userdata 的父目录（游戏根），返回其中的 interface 目录
-    fn locate_interface_dir(role_path: &Path) -> AppResult<PathBuf> {
+    pub(crate) fn locate_interface_dir(role_path: &Path) -> AppResult<PathBuf> {
         let mut current = role_path;
         while let Some(parent) = current.parent() {
             let is_userdata = current
@@ -157,7 +157,7 @@ impl PluginDataService {
     }
 
     /// interface 下所有 *#data 数据目录（不区分大小写）
-    fn collect_data_dirs(interface: &Path) -> AppResult<Vec<PathBuf>> {
+    pub(crate) fn collect_data_dirs(interface: &Path) -> AppResult<Vec<PathBuf>> {
         let mut dirs = vec![];
         for entry in fs::read_dir(interface)? {
             let entry = entry?;
@@ -173,7 +173,7 @@ impl PluginDataService {
     }
 
     /// 按（角色名, 服务器）反查 UID；同名同服多个 UID（改名残留）取 time 最大者
-    fn resolve_uid(data_dirs: &[PathBuf], name: &str, server: &str) -> Option<String> {
+    pub(crate) fn resolve_uid(data_dirs: &[PathBuf], name: &str, server: &str) -> Option<String> {
         let mut best: Option<(u64, String)> = None;
         for dir in data_dirs {
             let Ok(entries) = fs::read_dir(dir) else {
@@ -246,7 +246,7 @@ impl PluginDataService {
     }
 
     /// 判断数据目录形态：(有 `<uid>@<edition>` 子目录, 有 `<uid>.jx3dat` 文件)
-    fn dir_style(dir: &Path) -> (bool, bool) {
+    pub(crate) fn dir_style(dir: &Path) -> (bool, bool) {
         let mut has_uid_dirs = false;
         let mut has_uid_files = false;
         if let Ok(entries) = fs::read_dir(dir) {
@@ -280,7 +280,7 @@ impl PluginDataService {
     }
 
     /// 在框架式目录里找 `<uid>@<edition>` 子目录
-    fn find_uid_entry(dir: &Path, uid: &str) -> Option<PathBuf> {
+    pub(crate) fn find_uid_entry(dir: &Path, uid: &str) -> Option<PathBuf> {
         let prefix = format!("{uid}@");
         fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();

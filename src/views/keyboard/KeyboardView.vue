@@ -3,6 +3,7 @@ import type { KeyboardTemplate, UserSelect } from '@/types'
 import { ref, watch } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { useKeyboard } from '@/composables/useKeyboard'
+import CloudSync from './components/CloudSync.vue'
 import Result from './components/Result.vue'
 import SourceTree from './components/SourceTree.vue'
 import TemplateList from './components/TemplateList.vue'
@@ -10,6 +11,8 @@ import TemplateList from './components/TemplateList.vue'
 const { basePath, changeDirectory, templates, loadTree } = useKeyboard()
 
 const sourceTab = ref<'all' | 'favorites'>('all')
+
+const cloudVisible = ref(false)
 
 // 源/目标独立搜索：两边找的本来就是不同角色，全局一个搜索框会互相干扰
 const sourcePattern = ref('')
@@ -85,6 +88,9 @@ function selectTemplate(template: KeyboardTemplate) {
     <template v-else>
       <PageHeader title="改键" description="在账号与角色之间复制键位配置">
         <template #extra>
+          <n-button size="tiny" quaternary class="mr-2" @click="cloudVisible = true">
+            ☁ 云同步
+          </n-button>
           <n-button size="tiny" quaternary class="mr-2" @click="toggleExpandAll">
             {{ allExpanded ? '收起全部' : '展开全部' }}
           </n-button>
@@ -192,6 +198,8 @@ function selectTemplate(template: KeyboardTemplate) {
 
       <!-- 底部操作条：选择摘要 + 复制 -->
       <Result class="mt-3" :user-select="userSelect" />
+
+      <CloudSync v-model:show="cloudVisible" :user-select="userSelect" />
     </template>
   </div>
 </template>
