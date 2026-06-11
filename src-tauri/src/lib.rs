@@ -73,7 +73,7 @@ pub fn run() {
             get_cloud_config,
             save_cloud_config,
             test_cloud_connection,
-            cloud_upload_role,
+            cloud_upload_all,
             cloud_list_roles,
             cloud_download_role,
             // Hotkey commands

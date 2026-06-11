@@ -59,6 +59,13 @@ pub struct CloudUploadReport {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CloudBatchUploadReport {
+    pub uploaded: Vec<CloudUploadReport>,
+    pub failed: Vec<SkippedItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CloudDownloadReport {
     pub keybinding_applied: bool,
     pub plugin_dirs: Vec<String>,
@@ -100,10 +107,89 @@ struct StagedPlugins {
 pub struct CloudSyncService;
 
 impl CloudSyncService {
-    /// 上传角色：键位 zip + 插件 config zip + 更新 manifest
-    pub fn upload_role(
+    /// 批量上传：枚举 userdata 下所有角色（账号/区服/服务器/角色），
+    /// 每个角色打包键位 + 插件配置上传；manifest 只读写一次。
+    /// 单个角色失败不中断整批，进 failed 列表。
+    pub fn upload_all_roles(
+        storage: &dyn CloudStorage,
+        userdata_path: &Path,
+    ) -> AppResult<CloudBatchUploadReport> {
+        if !userdata_path.is_dir() {
+            return Err(AppError::Cloud(format!(
+                "userdata 路径无效: {}",
+                userdata_path.display()
+            )));
+        }
+        let role_dirs = Self::enumerate_role_dirs(userdata_path)?;
+        if role_dirs.is_empty() {
+            return Err(AppError::Cloud(
+                "userdata 下没有找到任何角色，请确认选择的是游戏 userdata 目录".into(),
+            ));
+        }
+
+        let mut manifest = Self::load_manifest(storage)?;
+        let mut report = CloudBatchUploadReport {
+            uploaded: vec![],
+            failed: vec![],
+        };
+        for role_dir in &role_dirs {
+            match Self::upload_one(storage, role_dir, &mut manifest) {
+                Ok(role_report) => report.uploaded.push(role_report),
+                Err(e) => report.failed.push(SkippedItem {
+                    dir: role_dir
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                    reason: e.to_string(),
+                }),
+            }
+        }
+        Self::save_manifest(storage, &manifest)?;
+
+        log::info!(
+            "批量上传完成: 成功 {} 个角色，失败 {} 个",
+            report.uploaded.len(),
+            report.failed.len()
+        );
+        Ok(report)
+    }
+
+    /// userdata 下全部角色目录（账号/区服/服务器/角色，与改键树同口径：
+    /// 跳过隐藏目录和 userpreferences）
+    fn enumerate_role_dirs(userdata_path: &Path) -> AppResult<Vec<PathBuf>> {
+        fn subdirs(dir: &Path) -> Vec<PathBuf> {
+            let Ok(entries) = fs::read_dir(dir) else {
+                return vec![];
+            };
+            entries
+                .flatten()
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                .filter(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    !name.starts_with('.') && name != "userpreferences"
+                })
+                .map(|e| e.path())
+                .collect()
+        }
+
+        let mut roles = vec![];
+        for account in subdirs(userdata_path) {
+            for zone in subdirs(&account) {
+                for server in subdirs(&zone) {
+                    roles.extend(subdirs(&server));
+                }
+            }
+        }
+        roles.sort();
+        Ok(roles)
+    }
+
+    /// 上传单个角色的文件并在内存 manifest 中登记（不做 manifest IO，供批量复用）。
+    /// 文件先就位再登记，列表里永远不会出现拉不到包的条目。
+    fn upload_one(
         storage: &dyn CloudStorage,
         role_path: &Path,
+        manifest: &mut CloudManifest,
     ) -> AppResult<CloudUploadReport> {
         if !role_path.is_dir() {
             return Err(AppError::Cloud(format!(
@@ -133,8 +219,6 @@ impl CloudSyncService {
             None => None,
         };
 
-        // 上传文件就位后再登记 manifest，列表里永远不会出现拉不到包的条目
-        let mut manifest = Self::load_manifest(storage)?;
         manifest.roles.retain(|r| r.key != key);
         manifest.roles.push(CloudRoleEntry {
             key: key.clone(),
@@ -147,12 +231,6 @@ impl CloudSyncService {
             keybinding_size: keybinding_bytes.len() as u64,
             plugins_size: plugins_bytes.as_ref().map_or(0, |b| b.len() as u64),
         });
-        manifest.roles.sort_by(|a, b| a.key.cmp(&b.key));
-        storage.put(
-            MANIFEST_PATH,
-            &serde_json::to_vec_pretty(&manifest)
-                .map_err(|e| AppError::Cloud(format!("生成 manifest 失败: {e}")))?,
-        )?;
 
         log::info!(
             "云端上传完成: {key}，键位 {} 字节，插件 {:?}",
@@ -166,6 +244,16 @@ impl CloudSyncService {
             plugin_dirs,
             skipped,
         })
+    }
+
+    fn save_manifest(storage: &dyn CloudStorage, manifest: &CloudManifest) -> AppResult<()> {
+        let mut sorted = manifest.clone();
+        sorted.roles.sort_by(|a, b| a.key.cmp(&b.key));
+        storage.put(
+            MANIFEST_PATH,
+            &serde_json::to_vec_pretty(&sorted)
+                .map_err(|e| AppError::Cloud(format!("生成 manifest 失败: {e}")))?,
+        )
     }
 
     /// 云端角色列表（读 manifest）
@@ -518,12 +606,25 @@ mod tests {
         (root, role)
     }
 
+    /// 测试便捷入口：经批量通道上传单个角色（向上 4 级即 userdata 根）
+    fn upload_via_batch(storage: &dyn CloudStorage, role_path: &Path) -> CloudUploadReport {
+        let userdata = role_path.ancestors().nth(4).unwrap();
+        let report = CloudSyncService::upload_all_roles(storage, userdata).unwrap();
+        assert!(report.failed.is_empty(), "failed: {:?}", report.failed);
+        let role_name = role_path.file_name().unwrap().to_string_lossy().to_string();
+        report
+            .uploaded
+            .into_iter()
+            .find(|r| r.key.ends_with(&format!("/{role_name}")))
+            .expect("批量结果中应包含该角色")
+    }
+
     #[test]
     fn upload_then_list_returns_entry_with_plugins() {
         let storage = MemStorage::new();
         let (src_root, src_role) = build_source_tree();
 
-        let report = CloudSyncService::upload_role(&storage, &src_role).unwrap();
+        let report = upload_via_batch(&storage, &src_role);
         assert_eq!(report.key, "梦江南/源角色");
         assert!(report.keybinding_size > 0);
         assert!(report.plugins_size > 0);
@@ -553,8 +654,8 @@ mod tests {
         let storage = MemStorage::new();
         let (src_root, src_role) = build_source_tree();
 
-        CloudSyncService::upload_role(&storage, &src_role).unwrap();
-        CloudSyncService::upload_role(&storage, &src_role).unwrap();
+        upload_via_batch(&storage, &src_role);
+        upload_via_batch(&storage, &src_role);
 
         assert_eq!(CloudSyncService::list_roles(&storage).unwrap().len(), 1);
 
@@ -566,7 +667,7 @@ mod tests {
         let storage = MemStorage::new();
         let (src_root, src_role) = build_source_tree();
         let (tgt_root, tgt_role) = build_target_tree();
-        CloudSyncService::upload_role(&storage, &src_role).unwrap();
+        upload_via_batch(&storage, &src_role);
 
         let report =
             CloudSyncService::download_role(&storage, "梦江南/源角色", &tgt_role).unwrap();
@@ -615,7 +716,7 @@ mod tests {
     fn download_skips_all_plugins_when_target_never_logged_in() {
         let storage = MemStorage::new();
         let (src_root, src_role) = build_source_tree();
-        CloudSyncService::upload_role(&storage, &src_role).unwrap();
+        upload_via_batch(&storage, &src_role);
 
         // 目标树有 interface 但没有目标角色的任何 UID 数据
         let tgt_root = temp_dir("tgt-fresh");
@@ -639,10 +740,59 @@ mod tests {
     }
 
     #[test]
+    fn upload_all_roles_covers_every_role_without_selection() {
+        let storage = MemStorage::new();
+        let (src_root, _) = build_source_tree();
+        // 同一 userdata 下再加一个角色（不同服务器、无插件数据）+ 干扰目录
+        let userdata = src_root.join("userdata");
+        write_file(&userdata.join("acc/电信区/天鹅坪/二号角色/keybind.ini"), "keys-2");
+        fs::create_dir_all(userdata.join("acc/电信区/梦江南/userpreferences")).unwrap();
+        fs::create_dir_all(userdata.join(".hidden/电信区/梦江南/不该出现")).unwrap();
+
+        let report = CloudSyncService::upload_all_roles(&storage, &userdata).unwrap();
+
+        assert_eq!(report.uploaded.len(), 2, "应上传全部 2 个角色");
+        assert!(report.failed.is_empty(), "failed: {:?}", report.failed);
+        let mut keys: Vec<String> = report.uploaded.iter().map(|r| r.key.clone()).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["天鹅坪/二号角色", "梦江南/源角色"]);
+
+        let roles = CloudSyncService::list_roles(&storage).unwrap();
+        assert_eq!(roles.len(), 2, "manifest 应包含全部角色");
+        // 有插件数据的角色带插件包，没有的只有键位
+        let with_plugins = roles.iter().find(|r| r.name == "源角色").unwrap();
+        assert!(with_plugins.plugins_file.is_some());
+        let without_plugins = roles.iter().find(|r| r.name == "二号角色").unwrap();
+        assert!(without_plugins.plugins_file.is_none());
+
+        let _ = fs::remove_dir_all(&src_root);
+    }
+
+    #[test]
+    fn upload_all_roles_errors_on_invalid_userdata() {
+        let storage = MemStorage::new();
+        let root = temp_dir("bad-userdata");
+        let err = CloudSyncService::upload_all_roles(&storage, &root.join("不存在"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("userdata"), "应提示 userdata 路径无效, got: {err}");
+
+        // 空 userdata（没有任何角色）也应明确报错而不是静默成功
+        let empty = root.join("userdata");
+        fs::create_dir_all(&empty).unwrap();
+        let err = CloudSyncService::upload_all_roles(&storage, &empty)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("角色"), "应提示没有角色, got: {err}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn download_errors_on_unknown_key() {
         let storage = MemStorage::new();
         let (src_root, src_role) = build_source_tree();
-        CloudSyncService::upload_role(&storage, &src_role).unwrap();
+        upload_via_batch(&storage, &src_role);
 
         let tgt = temp_dir("tgt-any").join("userdata/a/b/c/角色");
         fs::create_dir_all(&tgt).unwrap();
@@ -663,7 +813,7 @@ mod tests {
         write_file(&role.join("keybind.ini"), "keys");
         fs::create_dir_all(root.join("interface/my#data")).unwrap();
 
-        let report = CloudSyncService::upload_role(&storage, &role).unwrap();
+        let report = upload_via_batch(&storage, &role);
         assert!(report.keybinding_size > 0);
         assert_eq!(report.plugins_size, 0);
         assert!(report.plugin_dirs.is_empty());

@@ -29,6 +29,12 @@ export interface CloudUploadReport {
   skipped: PluginSyncSkippedItem[]
 }
 
+/** 批量上传结果（cloud_upload_all 返回值） */
+export interface CloudBatchUploadReport {
+  uploaded: CloudUploadReport[]
+  failed: PluginSyncSkippedItem[]
+}
+
 /** 下载结果（cloud_download_role 返回值） */
 export interface CloudDownloadReport {
   keybindingApplied: boolean

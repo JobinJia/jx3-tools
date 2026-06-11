@@ -5,7 +5,7 @@ use tauri::command;
 use crate::error::{validate_path_not_empty, AppError, AppResult};
 use crate::services::cloud::config::{load_config, save_config, CloudConfig};
 use crate::services::cloud::sync::{
-    CloudDownloadReport, CloudRoleEntry, CloudSyncService, CloudUploadReport,
+    CloudBatchUploadReport, CloudDownloadReport, CloudRoleEntry, CloudSyncService,
 };
 use crate::services::cloud::webdav::WebDavStorage;
 
@@ -44,13 +44,14 @@ pub async fn test_cloud_connection(config: CloudConfig) -> AppResult<()> {
     .map_err(|e| AppError::Cloud(format!("后台任务执行失败: {e}")))?
 }
 
+/// 批量上传 userdata 下所有角色（键位 + 插件配置），无需选择
 #[command]
-pub async fn cloud_upload_role(role_path: String) -> AppResult<CloudUploadReport> {
-    log::debug!("Command: cloud_upload_role({role_path})");
-    validate_path_not_empty(&role_path, "role_path")?;
+pub async fn cloud_upload_all(userdata_path: String) -> AppResult<CloudBatchUploadReport> {
+    log::debug!("Command: cloud_upload_all({userdata_path})");
+    validate_path_not_empty(&userdata_path, "userdata_path")?;
     tauri::async_runtime::spawn_blocking(move || {
         let storage = storage_from_saved()?;
-        CloudSyncService::upload_role(&storage, std::path::Path::new(&role_path))
+        CloudSyncService::upload_all_roles(&storage, std::path::Path::new(&userdata_path))
     })
     .await
     .map_err(|e| AppError::Cloud(format!("后台任务执行失败: {e}")))?

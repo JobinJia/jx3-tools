@@ -67,6 +67,8 @@ pub struct WebDavStorage {
     username: String,
     password: String,
     client: reqwest::blocking::Client,
+    /// 本实例已确保存在的目录，批量上传时避免对同一目录反复 MKCOL（坚果云免费版限频）
+    created_dirs: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl WebDavStorage {
@@ -81,6 +83,7 @@ impl WebDavStorage {
             username: username.to_string(),
             password: password.to_string(),
             client,
+            created_dirs: std::sync::Mutex::new(std::collections::HashSet::new()),
         })
     }
 
@@ -104,6 +107,13 @@ impl WebDavStorage {
     /// 逐级创建文件路径的祖先目录；201 = 新建成功，405 = 已存在，均视为成功
     fn mkcol_ancestors(&self, path: &str) -> AppResult<()> {
         for dir in ancestor_dirs(path) {
+            if self
+                .created_dirs
+                .lock()
+                .is_ok_and(|dirs| dirs.contains(&dir))
+            {
+                continue;
+            }
             let mut url = self.url_for(&dir)?;
             // MKCOL 集合地址按惯例带尾部 /，避免部分服务端 301 重定向
             if !url.path().ends_with('/') {
@@ -118,7 +128,11 @@ impl WebDavStorage {
                 .send()
                 .map_err(Self::send_err)?;
             match resp.status().as_u16() {
-                201 | 405 => {}
+                201 | 405 => {
+                    if let Ok(mut dirs) = self.created_dirs.lock() {
+                        dirs.insert(dir);
+                    }
+                }
                 s => return Err(Self::status_err(s)),
             }
         }

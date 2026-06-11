@@ -1,8 +1,8 @@
 import type {
+  CloudBatchUploadReport,
   CloudConfig,
   CloudDownloadReport,
   CloudRoleEntry,
-  CloudUploadReport,
 } from '@/types'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -29,10 +29,10 @@ export const cloudService = {
   },
 
   /**
-   * Pack and upload a role (keybinding + plugin configs) to the cloud
+   * Pack and upload all roles under userdata (keybinding + plugin configs)
    */
-  async uploadRole(rolePath: string): Promise<CloudUploadReport> {
-    return invoke<CloudUploadReport>('cloud_upload_role', { rolePath })
+  async uploadAll(userdataPath: string): Promise<CloudBatchUploadReport> {
+    return invoke<CloudBatchUploadReport>('cloud_upload_all', { userdataPath })
   },
 
   /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, summarizeCloudDownload, summarizeCloudUpload } from '../useCloud'
+import { formatBytes, summarizeCloudBatchUpload, summarizeCloudDownload } from '../useCloud'
 
 describe('formatBytes', () => {
   it('formats bytes / KB / MB', () => {
@@ -9,29 +9,34 @@ describe('formatBytes', () => {
   })
 })
 
-describe('summarizeCloudUpload', () => {
-  it('mentions key, sizes and plugin dirs on full upload', () => {
-    const result = summarizeCloudUpload({
-      key: '梦江南/落梅听风雪',
-      keybindingSize: 2048,
-      pluginsSize: 1024,
-      pluginDirs: ['my#data', 'SG#data'],
-      skipped: [],
-    })
-    expect(result.success).toBe('已上传「梦江南/落梅听风雪」：键位 2.0 KB，插件配置 1.0 KB（my#data、SG#data）')
-    expect(result.warnings).toEqual([])
+describe('summarizeCloudBatchUpload', () => {
+  const role = (key: string, pluginDirs: string[]) => ({
+    key,
+    keybindingSize: 1024,
+    pluginsSize: pluginDirs.length > 0 ? 512 : 0,
+    pluginDirs,
+    skipped: [],
   })
 
-  it('notes missing plugins and surfaces skip reasons', () => {
-    const result = summarizeCloudUpload({
-      key: '梦江南/无插件角色',
-      keybindingSize: 512,
-      pluginsSize: 0,
-      pluginDirs: [],
-      skipped: [{ dir: '插件配置', reason: '未找到该角色的插件数据' }],
+  it('counts uploaded roles and roles without plugin configs', () => {
+    const result = summarizeCloudBatchUpload({
+      uploaded: [role('梦江南/甲', ['my#data']), role('梦江南/乙', [])],
+      failed: [{ dir: '丙', reason: '角色目录不存在' }],
     })
-    expect(result.success).toBe('已上传「梦江南/无插件角色」：键位 512 B（未包含插件配置）')
-    expect(result.warnings).toEqual(['插件配置: 未找到该角色的插件数据'])
+    expect(result.success).toBe('已上传 2 个角色到云端')
+    expect(result.warnings).toEqual([
+      '1 个角色未包含插件配置（未用插件登录过）',
+      '丙: 角色目录不存在',
+    ])
+  })
+
+  it('clean batch yields success only', () => {
+    const result = summarizeCloudBatchUpload({
+      uploaded: [role('梦江南/甲', ['my#data']), role('梦江南/乙', ['lm#data'])],
+      failed: [],
+    })
+    expect(result.success).toBe('已上传 2 个角色到云端')
+    expect(result.warnings).toEqual([])
   })
 })
 

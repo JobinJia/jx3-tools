@@ -22,7 +22,7 @@ const {
   testConnection,
   saveConfig,
   refreshRoles,
-  uploadRole,
+  uploadAll,
   downloadRole,
 } = useCloud()
 const { basePath, loadTree } = useKeyboard()
@@ -63,9 +63,9 @@ function rolePath(relative: string): string {
 }
 
 async function handleUpload() {
-  if (!props.userSelect.sourcePath)
+  if (!basePath.value)
     return
-  await uploadRole(rolePath(props.userSelect.sourcePath))
+  await uploadAll(basePath.value)
 }
 
 async function handleDownload(key: string) {
@@ -134,19 +134,18 @@ function formatTime(seconds: number): string {
           上传到云端
         </div>
         <div class="flex items-center gap-2 text-xs">
-          <span class="role-chip" :class="{ 'role-empty': !userSelect.source }">
-            {{ userSelect.source || '未选择源角色' }}
+          <span style="color: var(--ink-muted)">
+            一键把 userdata 下<b>所有角色</b>的键位 + 插件配置打包上传，无需选择（同名角色覆盖云端旧档）
           </span>
-          <span style="color: var(--ink-muted)">键位 + 插件配置打包上传（同名角色覆盖旧档）</span>
           <n-button
             size="small"
             type="primary"
-            class="ml-auto"
+            class="ml-auto flex-shrink-0"
             :loading="uploading"
-            :disabled="!userSelect.sourcePath"
+            :disabled="!basePath"
             @click="handleUpload"
           >
-            上传
+            {{ uploading ? '上传中…' : '全部上传' }}
           </n-button>
         </div>
       </div>
@@ -226,25 +225,6 @@ function formatTime(seconds: number): string {
   font-size: 11px;
   color: var(--indigo);
   cursor: pointer;
-}
-
-.role-chip {
-  border-radius: 5px;
-  padding: 3px 8px;
-  border: 1px solid var(--cinnabar);
-  color: var(--cinnabar);
-  background: var(--cinnabar-tint);
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.role-empty {
-  color: var(--ink-muted);
-  border-color: var(--line);
-  border-style: dashed;
-  background: transparent;
 }
 
 .role-list {

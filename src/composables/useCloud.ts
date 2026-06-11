@@ -1,4 +1,4 @@
-import type { CloudConfig, CloudDownloadReport, CloudRoleEntry, CloudUploadReport } from '@/types'
+import type { CloudBatchUploadReport, CloudConfig, CloudDownloadReport, CloudRoleEntry } from '@/types'
 import { useMessage } from 'naive-ui'
 import { ref } from 'vue'
 import { cloudService } from '@/services'
@@ -16,16 +16,14 @@ function skippedToWarnings(skipped: { dir: string, reason: string }[]): string[]
   return skipped.map(item => `${item.dir}: ${item.reason}`)
 }
 
-/** 上传结果 → 提示文案（纯函数，便于测试） */
-export function summarizeCloudUpload(report: CloudUploadReport): { success: string, warnings: string[] } {
-  const keybinding = `键位 ${formatBytes(report.keybindingSize)}`
-  const plugins = report.pluginDirs.length > 0
-    ? `，插件配置 ${formatBytes(report.pluginsSize)}（${report.pluginDirs.join('、')}）`
-    : '（未包含插件配置）'
-  return {
-    success: `已上传「${report.key}」：${keybinding}${plugins}`,
-    warnings: skippedToWarnings(report.skipped),
-  }
+/** 批量上传结果 → 提示文案（纯函数，便于测试） */
+export function summarizeCloudBatchUpload(report: CloudBatchUploadReport): { success: string, warnings: string[] } {
+  const warnings: string[] = []
+  const withoutPlugins = report.uploaded.filter(role => role.pluginDirs.length === 0).length
+  if (withoutPlugins > 0)
+    warnings.push(`${withoutPlugins} 个角色未包含插件配置（未用插件登录过）`)
+  warnings.push(...skippedToWarnings(report.failed))
+  return { success: `已上传 ${report.uploaded.length} 个角色到云端`, warnings }
 }
 
 /** 下载结果 → 提示文案（纯函数，便于测试） */
@@ -113,12 +111,12 @@ export function useCloud() {
     }
   }
 
-  /** 上传角色（键位 + 插件配置）并刷新云端列表 */
-  async function uploadRole(rolePath: string): Promise<boolean> {
+  /** 批量上传 userdata 下所有角色（键位 + 插件配置）并刷新云端列表 */
+  async function uploadAll(userdataPath: string): Promise<boolean> {
     uploading.value = true
     try {
-      const report = await cloudService.uploadRole(rolePath)
-      const { success, warnings } = summarizeCloudUpload(report)
+      const report = await cloudService.uploadAll(userdataPath)
+      const { success, warnings } = summarizeCloudBatchUpload(report)
       message.success(success)
       for (const warning of warnings)
         message.warning(warning)
@@ -164,7 +162,7 @@ export function useCloud() {
     testConnection,
     saveConfig,
     refreshRoles,
-    uploadRole,
+    uploadAll,
     downloadRole,
   }
 }
