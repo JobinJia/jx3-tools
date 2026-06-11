@@ -349,20 +349,16 @@ onUnmounted(() => {
       title="按键驱动未安装"
       class="mx-auto mb-3 max-w-[480px]"
     >
-      <p>
-        剑网三的反作弊会拦截普通模拟按键，本功能需要 Interception <b>键盘</b>驱动（内核级）。
-        安装只保留键盘过滤器，<b>不会触碰鼠标</b>；安装后需重启电脑一次。
-      </p>
       <n-popconfirm
         :positive-button-props="{ loading: driverBusy }"
         @positive-click="handleInstallDriver"
       >
         <template #trigger>
-          <n-button size="small" type="primary" class="mt-2" :loading="driverBusy">
+          <n-button size="small" type="primary" :loading="driverBusy">
             安装按键驱动
           </n-button>
         </template>
-        将安装系统内核驱动（仅键盘过滤器），需重启电脑后生效。确认安装？
+        将安装键盘驱动，需重启电脑后生效。确认安装？
       </n-popconfirm>
     </n-alert>
 
