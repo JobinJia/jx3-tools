@@ -165,7 +165,9 @@ impl CloudStorage for WebDavStorage {
                     .map_err(|e| AppError::Cloud(format!("读取响应内容失败: {e}")))?;
                 Ok(Some(bytes.to_vec()))
             }
-            404 => Ok(None),
+            // 409：坚果云对"上级目录不存在"的 GET 返回 409 而非 404（首次使用时
+            // jx3-tools/ 还没建出来）——上级都不存在，文件自然不存在，等同 404
+            404 | 409 => Ok(None),
             s => Err(Self::status_err(&format!("GET {path}"), s)),
         }
     }
