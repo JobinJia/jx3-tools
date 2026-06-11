@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CloudConfig, UserSelect } from '@/types'
 import { computed, ref, watch } from 'vue'
-import { useCloud } from '@/composables/useCloud'
+import { cloudProgressPercent, useCloud } from '@/composables/useCloud'
 import { useKeyboard } from '@/composables/useKeyboard'
 
 const props = defineProps<{
@@ -18,6 +18,7 @@ const {
   listing,
   uploading,
   downloading,
+  progress,
   loadConfig,
   testConnection,
   saveConfig,
@@ -128,6 +129,23 @@ function formatTime(seconds: number): string {
     </div>
 
     <template v-if="bound">
+      <!-- 进度条：上传/下载期间显示 -->
+      <div v-if="progress" class="section">
+        <div class="mb-1.5 flex items-center justify-between text-xs">
+          <span style="color: var(--ink)">{{ progress.label }}</span>
+          <span v-if="progress.total > 0" style="color: var(--ink-muted)">
+            {{ progress.current }}/{{ progress.total }}
+          </span>
+        </div>
+        <n-progress
+          type="line"
+          :percentage="cloudProgressPercent(progress)"
+          :height="8"
+          :border-radius="4"
+          processing
+        />
+      </div>
+
       <!-- 上传 -->
       <div class="section">
         <div class="section-title">

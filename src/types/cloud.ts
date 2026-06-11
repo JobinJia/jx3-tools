@@ -41,3 +41,11 @@ export interface CloudDownloadReport {
   pluginDirs: string[]
   skipped: PluginSyncSkippedItem[]
 }
+
+/** 上传/下载进度（cloud://progress 事件载荷） */
+export interface CloudProgress {
+  phase: string
+  current: number
+  total: number
+  label: string
+}

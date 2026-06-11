@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, summarizeCloudBatchUpload, summarizeCloudDownload } from '../useCloud'
+import { cloudProgressPercent, formatBytes, summarizeCloudBatchUpload, summarizeCloudDownload } from '../useCloud'
+
+describe('cloudProgressPercent', () => {
+  it('returns rounded percentage from current/total', () => {
+    expect(cloudProgressPercent({ phase: 'upload', current: 0, total: 4, label: '' })).toBe(0)
+    expect(cloudProgressPercent({ phase: 'upload', current: 1, total: 4, label: '' })).toBe(25)
+    expect(cloudProgressPercent({ phase: 'upload', current: 4, total: 4, label: '' })).toBe(100)
+    expect(cloudProgressPercent({ phase: 'upload', current: 1, total: 3, label: '' })).toBe(33)
+  })
+
+  it('is 0 when total is 0 (avoid divide-by-zero)', () => {
+    expect(cloudProgressPercent({ phase: 'upload', current: 0, total: 0, label: '' })).toBe(0)
+  })
+
+  it('is 0 for null progress', () => {
+    expect(cloudProgressPercent(null)).toBe(0)
+  })
+})
 
 describe('formatBytes', () => {
   it('formats bytes / KB / MB', () => {

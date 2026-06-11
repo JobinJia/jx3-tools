@@ -72,6 +72,19 @@ pub struct CloudDownloadReport {
     pub skipped: Vec<SkippedItem>,
 }
 
+/// 上传/下载过程中推送给前端的进度（current/total 用于进度条，label 用于文案）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudProgress {
+    pub phase: String,
+    pub current: u32,
+    pub total: u32,
+    pub label: String,
+}
+
+/// 进度回调：命令层把它接成 Tauri 事件，测试用空闭包或记录闭包
+pub type ProgressFn<'a> = dyn Fn(CloudProgress) + 'a;
+
 static TEMP_SEQ: AtomicU32 = AtomicU32::new(0);
 
 /// 进程内唯一的临时目录路径（不创建）
@@ -113,6 +126,7 @@ impl CloudSyncService {
     pub fn upload_all_roles(
         storage: &dyn CloudStorage,
         userdata_path: &Path,
+        progress: &ProgressFn,
     ) -> AppResult<CloudBatchUploadReport> {
         if !userdata_path.is_dir() {
             return Err(AppError::Cloud(format!(
@@ -127,23 +141,38 @@ impl CloudSyncService {
             ));
         }
 
+        let total = role_dirs.len() as u32;
         let mut manifest = Self::load_manifest(storage)?;
         let mut report = CloudBatchUploadReport {
             uploaded: vec![],
             failed: vec![],
         };
-        for role_dir in &role_dirs {
+        for (i, role_dir) in role_dirs.iter().enumerate() {
+            let role_name = role_dir
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // 处理前先报告：已完成 i 个，正在上传第 i+1 个
+            progress(CloudProgress {
+                phase: "upload".into(),
+                current: i as u32,
+                total,
+                label: format!("正在上传 {role_name}"),
+            });
             match Self::upload_one(storage, role_dir, &mut manifest) {
                 Ok(role_report) => report.uploaded.push(role_report),
                 Err(e) => report.failed.push(SkippedItem {
-                    dir: role_dir
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default(),
+                    dir: role_name,
                     reason: e.to_string(),
                 }),
             }
         }
+        progress(CloudProgress {
+            phase: "upload".into(),
+            current: total,
+            total,
+            label: "上传完成".into(),
+        });
         Self::save_manifest(storage, &manifest)?;
 
         log::info!(
@@ -266,6 +295,7 @@ impl CloudSyncService {
         storage: &dyn CloudStorage,
         key: &str,
         target_role_path: &Path,
+        progress: &ProgressFn,
     ) -> AppResult<CloudDownloadReport> {
         let manifest = Self::load_manifest(storage)?;
         let entry = manifest
@@ -274,10 +304,23 @@ impl CloudSyncService {
             .find(|r| r.key == key)
             .ok_or_else(|| AppError::Cloud(format!("云端没有该角色的存档: {key}")))?;
 
+        // 阶段总数：键位（下载+应用）固定 2，有插件再 +2
+        let total = if entry.plugins_file.is_some() { 4 } else { 2 };
+        let emit = |current: u32, label: &str| {
+            progress(CloudProgress {
+                phase: "download".into(),
+                current,
+                total,
+                label: label.into(),
+            });
+        };
+
         // 键位：拉包 → 解到临时目录 → 交换就位
+        emit(0, "下载键位…");
         let keybinding_bytes = storage.get(&entry.keybinding_file)?.ok_or_else(|| {
             AppError::Cloud(format!("云端键位文件丢失: {}", entry.keybinding_file))
         })?;
+        emit(1, "应用键位…");
         let kb_tmp = unique_temp("kb");
         pack::unpack_to_dir(&keybinding_bytes, &kb_tmp)?;
         let swap_result = KeyboardService::swap_replace_dir(&kb_tmp, target_role_path);
@@ -292,8 +335,10 @@ impl CloudSyncService {
 
         // 插件：拉包 → 解包 → 按目标角色 UID 反查落位
         if let Some(plugins_file) = &entry.plugins_file {
+            emit(2, "下载插件配置…");
             match storage.get(plugins_file)? {
                 Some(bytes) => {
+                    emit(3, "应用插件配置…");
                     let plugin_tmp = unique_temp("plugins");
                     pack::unpack_to_dir(&bytes, &plugin_tmp)?;
                     Self::apply_plugins(&plugin_tmp, target_role_path, &mut report);
@@ -306,6 +351,7 @@ impl CloudSyncService {
             }
         }
 
+        emit(total, "下载完成");
         log::info!(
             "云端下载完成: {key} -> {}，插件 {:?}，跳过 {} 项",
             target_role_path.display(),
@@ -528,6 +574,9 @@ mod tests {
         }
     }
 
+    /// 不关心进度的测试用空回调
+    fn noop(_p: CloudProgress) {}
+
     impl CloudStorage for MemStorage {
         fn get(&self, path: &str) -> AppResult<Option<Vec<u8>>> {
             Ok(self.0.borrow().get(path).cloned())
@@ -609,7 +658,7 @@ mod tests {
     /// 测试便捷入口：经批量通道上传单个角色（向上 4 级即 userdata 根）
     fn upload_via_batch(storage: &dyn CloudStorage, role_path: &Path) -> CloudUploadReport {
         let userdata = role_path.ancestors().nth(4).unwrap();
-        let report = CloudSyncService::upload_all_roles(storage, userdata).unwrap();
+        let report = CloudSyncService::upload_all_roles(storage, userdata, &noop).unwrap();
         assert!(report.failed.is_empty(), "failed: {:?}", report.failed);
         let role_name = role_path.file_name().unwrap().to_string_lossy().to_string();
         report
@@ -670,7 +719,7 @@ mod tests {
         upload_via_batch(&storage, &src_role);
 
         let report =
-            CloudSyncService::download_role(&storage, "梦江南/源角色", &tgt_role).unwrap();
+            CloudSyncService::download_role(&storage, "梦江南/源角色", &tgt_role, &noop).unwrap();
 
         assert!(report.keybinding_applied);
         // 键位整体替换
@@ -725,7 +774,7 @@ mod tests {
         fs::create_dir_all(tgt_root.join("interface/my#data")).unwrap();
 
         let report =
-            CloudSyncService::download_role(&storage, "梦江南/源角色", &tgt_role).unwrap();
+            CloudSyncService::download_role(&storage, "梦江南/源角色", &tgt_role, &noop).unwrap();
 
         assert!(report.keybinding_applied, "键位不依赖插件数据，应照常应用");
         assert!(report.plugin_dirs.is_empty());
@@ -734,6 +783,54 @@ mod tests {
             "应提示先用目标角色登录一次, got: {:?}",
             report.skipped
         );
+
+        let _ = fs::remove_dir_all(&src_root);
+        let _ = fs::remove_dir_all(&tgt_root);
+    }
+
+    #[test]
+    fn upload_all_reports_progress_per_role_and_final() {
+        let storage = MemStorage::new();
+        let (src_root, _) = build_source_tree();
+        let userdata = src_root.join("userdata");
+        write_file(&userdata.join("acc/电信区/天鹅坪/二号角色/keybind.ini"), "keys-2");
+
+        let events = RefCell::new(Vec::<CloudProgress>::new());
+        CloudSyncService::upload_all_roles(&storage, &userdata, &|p| events.borrow_mut().push(p))
+            .unwrap();
+
+        let events = events.into_inner();
+        // 2 个角色各报一次 + 收尾一次 = 3
+        assert_eq!(events.len(), 3);
+        assert!(events.iter().all(|e| e.phase == "upload" && e.total == 2));
+        assert_eq!(events[0].current, 0);
+        assert_eq!(events[1].current, 1);
+        // 最后一条 current == total 表示完成
+        assert_eq!(events[2].current, 2);
+        assert_eq!(events[2].label, "上传完成");
+
+        let _ = fs::remove_dir_all(&src_root);
+    }
+
+    #[test]
+    fn download_reports_progress_through_phases() {
+        let storage = MemStorage::new();
+        let (src_root, src_role) = build_source_tree();
+        let (tgt_root, tgt_role) = build_target_tree();
+        upload_via_batch(&storage, &src_role);
+
+        let events = RefCell::new(Vec::<CloudProgress>::new());
+        CloudSyncService::download_role(&storage, "梦江南/源角色", &tgt_role, &|p| {
+            events.borrow_mut().push(p)
+        })
+        .unwrap();
+
+        let events = events.into_inner();
+        // 源角色带插件 → 4 个阶段 + 收尾
+        assert!(events.iter().all(|e| e.phase == "download" && e.total == 4));
+        assert_eq!(events.first().unwrap().current, 0);
+        assert_eq!(events.last().unwrap().current, 4);
+        assert_eq!(events.last().unwrap().label, "下载完成");
 
         let _ = fs::remove_dir_all(&src_root);
         let _ = fs::remove_dir_all(&tgt_root);
@@ -749,7 +846,7 @@ mod tests {
         fs::create_dir_all(userdata.join("acc/电信区/梦江南/userpreferences")).unwrap();
         fs::create_dir_all(userdata.join(".hidden/电信区/梦江南/不该出现")).unwrap();
 
-        let report = CloudSyncService::upload_all_roles(&storage, &userdata).unwrap();
+        let report = CloudSyncService::upload_all_roles(&storage, &userdata, &noop).unwrap();
 
         assert_eq!(report.uploaded.len(), 2, "应上传全部 2 个角色");
         assert!(report.failed.is_empty(), "failed: {:?}", report.failed);
@@ -772,7 +869,7 @@ mod tests {
     fn upload_all_roles_errors_on_invalid_userdata() {
         let storage = MemStorage::new();
         let root = temp_dir("bad-userdata");
-        let err = CloudSyncService::upload_all_roles(&storage, &root.join("不存在"))
+        let err = CloudSyncService::upload_all_roles(&storage, &root.join("不存在"), &noop)
             .unwrap_err()
             .to_string();
         assert!(err.contains("userdata"), "应提示 userdata 路径无效, got: {err}");
@@ -780,7 +877,7 @@ mod tests {
         // 空 userdata（没有任何角色）也应明确报错而不是静默成功
         let empty = root.join("userdata");
         fs::create_dir_all(&empty).unwrap();
-        let err = CloudSyncService::upload_all_roles(&storage, &empty)
+        let err = CloudSyncService::upload_all_roles(&storage, &empty, &noop)
             .unwrap_err()
             .to_string();
         assert!(err.contains("角色"), "应提示没有角色, got: {err}");
@@ -796,7 +893,7 @@ mod tests {
 
         let tgt = temp_dir("tgt-any").join("userdata/a/b/c/角色");
         fs::create_dir_all(&tgt).unwrap();
-        let err = CloudSyncService::download_role(&storage, "不存在/角色", &tgt)
+        let err = CloudSyncService::download_role(&storage, "不存在/角色", &tgt, &noop)
             .unwrap_err()
             .to_string();
         assert!(err.contains("云端"), "应提示云端不存在该角色, got: {err}");

@@ -1,7 +1,15 @@
-import type { CloudBatchUploadReport, CloudConfig, CloudDownloadReport, CloudRoleEntry } from '@/types'
+import type { CloudBatchUploadReport, CloudConfig, CloudDownloadReport, CloudProgress, CloudRoleEntry } from '@/types'
+import { listen } from '@tauri-apps/api/event'
 import { useMessage } from 'naive-ui'
 import { ref } from 'vue'
 import { cloudService } from '@/services'
+
+/** 进度百分比（纯函数，便于测试） */
+export function cloudProgressPercent(progress: CloudProgress | null): number {
+  if (!progress || progress.total <= 0)
+    return 0
+  return Math.round((progress.current / progress.total) * 100)
+}
 
 /** 字节数格式化（纯函数，便于测试） */
 export function formatBytes(bytes: number): string {
@@ -46,12 +54,27 @@ const saving = ref(false)
 const listing = ref(false)
 const uploading = ref(false)
 const downloading = ref(false)
+const progress = ref<CloudProgress | null>(null)
 
 export function useCloud() {
   const message = useMessage()
 
   function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
+  }
+
+  /** 包裹一次云操作：期间监听 cloud://progress 驱动进度条，结束后清理 */
+  async function withProgress<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    progress.value = { phase: '', current: 0, total: 0, label }
+    const unlisten = await listen<CloudProgress>('cloud://progress', (e) => {
+      progress.value = e.payload
+    })
+    try {
+      return await fn()
+    } finally {
+      unlisten()
+      progress.value = null
+    }
   }
 
   /** 读取已保存的账号配置（应用启动后首次打开弹窗时调用） */
@@ -115,7 +138,7 @@ export function useCloud() {
   async function uploadAll(userdataPath: string): Promise<boolean> {
     uploading.value = true
     try {
-      const report = await cloudService.uploadAll(userdataPath)
+      const report = await withProgress('准备上传…', () => cloudService.uploadAll(userdataPath))
       const { success, warnings } = summarizeCloudBatchUpload(report)
       message.success(success)
       for (const warning of warnings)
@@ -135,7 +158,7 @@ export function useCloud() {
   async function downloadRole(key: string, targetPath: string): Promise<boolean> {
     downloading.value = true
     try {
-      const report = await cloudService.downloadRole(key, targetPath)
+      const report = await withProgress('准备下载…', () => cloudService.downloadRole(key, targetPath))
       const { success, warnings } = summarizeCloudDownload(report)
       message.success(success)
       for (const warning of warnings)
@@ -158,6 +181,7 @@ export function useCloud() {
     listing,
     uploading,
     downloading,
+    progress,
     loadConfig,
     testConnection,
     saveConfig,
