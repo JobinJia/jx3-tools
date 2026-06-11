@@ -24,12 +24,18 @@ pub async fn get_cloud_config() -> AppResult<Option<CloudConfig>> {
         .map_err(|e| AppError::Cloud(format!("后台任务执行失败: {e}")))?
 }
 
+/// 保存前先验证连通性——配错地址（如坚果云漏掉 /dav/）会在这里被拦下，
+/// 而不是等到上传时报一串 409
 #[command]
 pub async fn save_cloud_config(config: CloudConfig) -> AppResult<()> {
     log::debug!("Command: save_cloud_config({})", config.server_url);
-    tauri::async_runtime::spawn_blocking(move || save_config(&config))
-        .await
-        .map_err(|e| AppError::Cloud(format!("后台任务执行失败: {e}")))?
+    tauri::async_runtime::spawn_blocking(move || {
+        use crate::services::cloud::webdav::CloudStorage;
+        WebDavStorage::new(&config.server_url, &config.username, &config.app_password)?.check()?;
+        save_config(&config)
+    })
+    .await
+    .map_err(|e| AppError::Cloud(format!("后台任务执行失败: {e}")))?
 }
 
 /// 用传入配置（而非已保存配置）测试连通性，供保存前验证

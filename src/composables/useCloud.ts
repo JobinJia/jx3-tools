@@ -88,7 +88,7 @@ export function useCloud() {
     try {
       await cloudService.saveCloudConfig(form)
       config.value = { ...form }
-      message.success('云同步账号已保存')
+      message.success('连接验证通过，云同步账号已保存')
       return true
     } catch (error: unknown) {
       message.error(`保存失败: ${errorText(error)}`)

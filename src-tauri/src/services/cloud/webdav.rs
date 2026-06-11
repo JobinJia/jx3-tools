@@ -54,6 +54,15 @@ pub fn join_path(base: &Url, rel: &str) -> AppResult<Url> {
     Ok(url)
 }
 
+/// 目录的 MKCOL 地址（带尾部 /，避免部分服务端 301 重定向）
+fn dir_url(base: &Url, rel: &str) -> AppResult<Url> {
+    let mut url = join_path(base, rel)?;
+    if !url.path().ends_with('/') {
+        url.set_path(&format!("{}/", url.path()));
+    }
+    Ok(url)
+}
+
 /// 一个文件路径的所有祖先目录（由浅到深），用于逐级 MKCOL
 pub fn ancestor_dirs(path: &str) -> Vec<String> {
     let segments: Vec<&str> = path.split('/').filter(|seg| !seg.is_empty()).collect();
@@ -95,12 +104,17 @@ impl WebDavStorage {
         AppError::Cloud(format!("网络请求失败（请检查服务器地址和网络）: {e}"))
     }
 
-    fn status_err(status: u16) -> AppError {
+    /// 状态码 → 中文错误；context 形如 "MKCOL jx3-tools"，定位是哪一步在哪个路径上失败
+    fn status_err(context: &str, status: u16) -> AppError {
         match status {
-            401 => AppError::Cloud("账号或应用密码错误（401）".into()),
-            403 => AppError::Cloud("没有权限访问该路径（403）".into()),
-            507 => AppError::Cloud("网盘空间不足（507）".into()),
-            s => AppError::Cloud(format!("服务器返回异常状态码: {s}")),
+            401 => AppError::Cloud(format!("账号或应用密码错误（401，{context}）")),
+            403 => AppError::Cloud(format!("没有权限访问该路径（403，{context}）")),
+            409 => AppError::Cloud(format!(
+                "上级目录不存在（409，{context}）。请检查服务器地址是否为 WebDAV 根地址，\
+                 坚果云应填 https://dav.jianguoyun.com/dav/"
+            )),
+            507 => AppError::Cloud(format!("网盘空间不足（507，{context}）")),
+            s => AppError::Cloud(format!("服务器返回异常状态码 {s}（{context}）")),
         }
     }
 
@@ -114,11 +128,7 @@ impl WebDavStorage {
             {
                 continue;
             }
-            let mut url = self.url_for(&dir)?;
-            // MKCOL 集合地址按惯例带尾部 /，避免部分服务端 301 重定向
-            if !url.path().ends_with('/') {
-                url.set_path(&format!("{}/", url.path()));
-            }
+            let url = dir_url(&self.base, &dir)?;
             let method = reqwest::Method::from_bytes(b"MKCOL")
                 .map_err(|e| AppError::Cloud(format!("构造 MKCOL 请求失败: {e}")))?;
             let resp = self
@@ -133,7 +143,7 @@ impl WebDavStorage {
                         dirs.insert(dir);
                     }
                 }
-                s => return Err(Self::status_err(s)),
+                s => return Err(Self::status_err(&format!("MKCOL {dir}"), s)),
             }
         }
         Ok(())
@@ -156,7 +166,7 @@ impl CloudStorage for WebDavStorage {
                 Ok(Some(bytes.to_vec()))
             }
             404 => Ok(None),
-            s => Err(Self::status_err(s)),
+            s => Err(Self::status_err(&format!("GET {path}"), s)),
         }
     }
 
@@ -171,7 +181,7 @@ impl CloudStorage for WebDavStorage {
             .map_err(Self::send_err)?;
         match resp.status().as_u16() {
             200 | 201 | 204 => Ok(()),
-            s => Err(Self::status_err(s)),
+            s => Err(Self::status_err(&format!("PUT {path}"), s)),
         }
     }
 
@@ -188,7 +198,7 @@ impl CloudStorage for WebDavStorage {
         match resp.status().as_u16() {
             200 | 207 => Ok(()),
             404 => Err(AppError::Cloud("服务器地址路径不存在（404），请检查 WebDAV 地址".into())),
-            s => Err(Self::status_err(s)),
+            s => Err(Self::status_err("PROPFIND 根目录", s)),
         }
     }
 }
@@ -229,6 +239,18 @@ mod tests {
         let base = normalize_base_url("https://example.com/dav").unwrap();
         assert!(join_path(&base, "a/../b").is_err());
         assert!(join_path(&base, "../escape").is_err());
+    }
+
+    #[test]
+    fn dir_url_keeps_percent_encoding_when_adding_trailing_slash() {
+        let base = normalize_base_url("https://dav.jianguoyun.com/dav").unwrap();
+        let url = dir_url(&base, "jx3-tools/roles/梦江南_角色").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://dav.jianguoyun.com/dav/jx3-tools/roles/\
+             %E6%A2%A6%E6%B1%9F%E5%8D%97_%E8%A7%92%E8%89%B2/",
+            "尾部斜杠不能引起 % 的二次转义，否则 MKCOL 会建出乱码目录"
+        );
     }
 
     #[test]
