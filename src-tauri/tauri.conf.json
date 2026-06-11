@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "jx3-tools",
+  "productName": "SaltedFish",
   "version": "2.1.0",
   "identifier": "com.jobin.jx3-tools",
   "build": {

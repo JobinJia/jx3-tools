@@ -1,0 +1,50 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 咸鱼 SaltedFish · 水墨纸感图标 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b8412f"/>
+      <stop offset="1" stop-color="#8f2418"/>
+    </linearGradient>
+    <linearGradient id="body" x1="200" y1="360" x2="760" y2="680" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f7f1e3"/>
+      <stop offset="1" stop-color="#e6d6b8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方底 -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+
+  <!-- 整条咸鱼，略微倾斜，呈"躺平"姿态 -->
+  <g transform="rotate(-8 512 512)" stroke="#2a201b" stroke-width="22" stroke-linejoin="round" stroke-linecap="round">
+    <!-- 尾鳍（分叉） -->
+    <path d="M712 512 L905 392 L862 512 L905 632 Z" fill="url(#body)"/>
+
+    <!-- 鱼身 -->
+    <path d="M180 512
+             C300 372 530 360 720 446
+             C772 470 772 554 720 578
+             C530 664 300 652 180 512 Z" fill="url(#body)"/>
+
+    <!-- 鳃线 -->
+    <path d="M392 416 C352 470 352 554 392 608" fill="none" stroke-width="18"/>
+
+    <!-- 鱼骨条纹（咸鱼晒干的肋骨感） -->
+    <g stroke-width="15" fill="none" opacity="0.55">
+      <path d="M470 408 C452 470 452 554 470 616"/>
+      <path d="M556 414 C540 472 540 552 556 610"/>
+      <path d="M642 432 C628 478 628 546 642 592"/>
+    </g>
+
+    <!-- 背鳍 -->
+    <path d="M470 372 C520 326 588 330 632 378" fill="none" stroke-width="18"/>
+
+    <!-- X 死鱼眼（咸鱼之魂） -->
+    <g stroke-width="26" stroke-linecap="round">
+      <path d="M286 470 L334 518"/>
+      <path d="M334 470 L286 518"/>
+    </g>
+
+    <!-- 嘴 -->
+    <path d="M196 540 C228 556 256 556 282 544" fill="none" stroke-width="16"/>
+  </g>
+</svg>
