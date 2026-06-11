@@ -35,7 +35,6 @@ const isWindowMode = computed(() => formValue.keyMode === 'window')
 const triggerKeyFocused = ref(false)
 const startHotkeyFocused = ref(false)
 const stopHotkeyFocused = ref(false)
-const helpExpanded = ref(false)
 
 watch(
   config,
@@ -536,40 +535,17 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div class="mt-3 text-center text-[10px]">
-          <a class="cursor-pointer" style="color: var(--indigo)" @click="helpExpanded = !helpExpanded">
-            {{ helpExpanded ? '收起 ▴' : '更多说明 ▾' }}
-          </a>
-        </div>
-        <div
-          v-if="helpExpanded"
-          class="paper-card mt-2 p-4 text-xs leading-relaxed"
-          style="color: var(--ink-secondary)"
-        >
-          <p>
-            1. 按键模拟需要 <b>Interception 键盘驱动</b>（在本页面手动安装，装后需重启电脑一次）。
-            剑网三反作弊会拦截普通模拟按键，驱动级注入才能生效。本工具只安装键盘过滤器，不会触碰鼠标。
-          </p>
-          <p class="mt-1">
-            2. 保存后即可使用 <b>{{ formValue.startHotkey || '开始热键' }}</b> / <b>{{ formValue.stopHotkey || '结束热键' }}</b>
-            控制任务；软件最小化或在后台时同样生效。若热键被系统或其他软件占用，保存时会注册失败并提示，请换用其他按键。
-          </p>
-          <p class="mt-1">
-            3. 开始/结束热键支持组合键（如 Ctrl+Alt+F5）；触发按键支持字母、数字、F1-F12、方向键、小键盘等，且不能与开始/结束热键相同。
-          </p>
-          <p v-if="isWindows && driverState !== 'notInstalled'" class="mt-1">
-            4. 不再使用按键功能时，可
-            <n-popconfirm
-              :positive-button-props="{ loading: driverBusy }"
-              @positive-click="handleUninstallDriver"
-            >
-              <template #trigger>
-                <a class="cursor-pointer" style="color: var(--indigo)">卸载按键驱动</a>
-              </template>
-              将卸载 Interception 驱动（重启电脑后彻底生效）。确认卸载？
-            </n-popconfirm>
-            ；卸载后重启电脑彻底生效。
-          </p>
+        <!-- 驱动已装时给出卸载入口；未装时由顶部横幅引导安装 -->
+        <div v-if="isWindows && driverState !== 'notInstalled'" class="mt-3 text-center text-[10px]">
+          <n-popconfirm
+            :positive-button-props="{ loading: driverBusy }"
+            @positive-click="handleUninstallDriver"
+          >
+            <template #trigger>
+              <a class="cursor-pointer" style="color: var(--ink-muted)">卸载按键驱动</a>
+            </template>
+            将卸载 Interception 驱动（重启电脑后彻底生效）。确认卸载？
+          </n-popconfirm>
         </div>
       </div>
     </n-spin>
