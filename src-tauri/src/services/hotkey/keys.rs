@@ -12,7 +12,7 @@
 
 #![cfg(target_os = "windows")]
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -77,8 +77,6 @@ static SENDER: OnceLock<Option<Sender>> = OnceLock::new();
 
 struct Sender {
     devices: Vec<Device>,
-    /// 上次注入成功的设备下标（加速后续发送）
-    cached: AtomicUsize,
 }
 
 fn open_keyboard_device(index: usize) -> Option<Device> {
@@ -113,10 +111,7 @@ fn init_sender() -> Option<Sender> {
         return None;
     }
     log::info!("Interception 键盘设备已打开（{} 个）", devices.len());
-    Some(Sender {
-        devices,
-        cached: AtomicUsize::new(usize::MAX),
-    })
+    Some(Sender { devices })
 }
 
 fn get_sender() -> Option<&'static Sender> {
@@ -172,27 +167,28 @@ impl Sender {
     }
 
     fn send_key(&self, key: KeyDef) -> AppResult<()> {
-        // 优先复用已探测到的设备
-        let cached = self.cached.load(Ordering::Relaxed);
-        if let Some(device) = self.devices.get(cached) {
+        // 注入到所有已打开的键盘设备：真实键盘所在的槽位必定收到，空槽位无害。
+        // 不再"写成功第一个就停"——部分设备会接受写入却不产生真实输入，停在那种
+        // 设备上会表现为"已启动却无效果"。
+        let mut success = 0usize;
+        for device in &self.devices {
             if self.try_send(device, key.scancode, key.extended) {
-                return Ok(());
+                success += 1;
             }
         }
-
-        // 探测可用键盘设备（只有挂着真实键盘的设备注入才会被接收）
-        for (index, device) in self.devices.iter().enumerate() {
-            if index == cached {
-                continue;
-            }
-            if self.try_send(device, key.scancode, key.extended) {
-                self.cached.store(index, Ordering::Relaxed);
-                return Ok(());
-            }
+        log::debug!(
+            "注入 scancode={:#06x} 到 {} 个设备，成功 {}",
+            key.scancode,
+            self.devices.len(),
+            success
+        );
+        if success > 0 {
+            Ok(())
+        } else {
+            Err(AppError::Hotkey(
+                "Interception 注入按键失败，请确认驱动已安装并重启电脑".into(),
+            ))
         }
-        Err(AppError::Hotkey(
-            "Interception 注入按键失败，请确认驱动已安装并重启电脑".into(),
-        ))
     }
 }
 
