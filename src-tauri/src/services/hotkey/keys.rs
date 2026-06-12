@@ -79,7 +79,7 @@ struct Sender {
     devices: Vec<Device>,
 }
 
-fn open_keyboard_device(index: usize) -> Option<Device> {
+fn open_keyboard_device(index: usize) -> Result<Device, windows::core::Error> {
     let path: Vec<u16> = format!(r"\\.\interception{index:02}")
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -94,20 +94,36 @@ fn open_keyboard_device(index: usize) -> Option<Device> {
             FILE_FLAGS_AND_ATTRIBUTES(0),
             None,
         )
-    };
-    match handle {
-        Ok(handle) => Some(Device { handle }),
-        Err(_) => None,
-    }
+    }?;
+    Ok(Device { handle })
 }
 
 fn init_sender() -> Option<Sender> {
-    // 驱动加载时会一次性创建全部 10 个键盘设备：一个都打不开 = 驱动未加载
-    let devices: Vec<Device> = (0..KEYBOARD_DEVICE_COUNT)
-        .filter_map(open_keyboard_device)
-        .collect();
+    // 驱动加载时会一次性创建全部 10 个键盘设备：一个都打不开 = 驱动未加载/设备不可访问
+    let mut devices = Vec::new();
+    let mut first_err: Option<windows::core::Error> = None;
+    for index in 0..KEYBOARD_DEVICE_COUNT {
+        match open_keyboard_device(index) {
+            Ok(device) => devices.push(device),
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+    }
     if devices.is_empty() {
-        log::warn!("无法打开任何 interception 键盘设备，按键驱动不可用");
+        // 打印 interception00 的精确错误码用于诊断：
+        // 0x80070002 设备不存在（过滤器未绑定/未创建）；0x80070005 权限不足（非管理员）；
+        // 0x80070020 被占用（其他进程持有）
+        match first_err {
+            Some(e) => log::warn!(
+                "无法打开任何 interception 键盘设备（interception00 错误 0x{:08X}: {}），按键驱动不可用",
+                e.code().0 as u32,
+                e.message()
+            ),
+            None => log::warn!("无法打开任何 interception 键盘设备，按键驱动不可用"),
+        }
         return None;
     }
     log::info!("Interception 键盘设备已打开（{} 个）", devices.len());
