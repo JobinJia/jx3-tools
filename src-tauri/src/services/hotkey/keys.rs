@@ -149,9 +149,17 @@ where
     f(guard.as_ref())
 }
 
-/// 强制重新探测 interception 设备（安装/卸载驱动后调用）
-pub fn reprobe() {
+/// 关闭所有 interception 设备句柄（卸载驱动前调用——PnP 拆设备栈时如果有进程
+/// 持有句柄会导致拆栈失败，过滤器留在原位）
+pub fn close_devices() {
+    let mut guard = SENDER.lock().unwrap();
+    *guard = None;
     PROBED.store(false, Ordering::Release);
+    log::info!("已关闭所有 interception 设备句柄");
+}
+
+/// 重新探测 interception 设备（安装驱动后调用）
+pub fn reprobe() {
     let mut guard = SENDER.lock().unwrap();
     *guard = init_sender();
     PROBED.store(true, Ordering::Release);

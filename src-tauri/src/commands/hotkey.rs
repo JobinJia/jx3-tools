@@ -139,7 +139,11 @@ pub async fn uninstall_hotkey_driver(
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: uninstall_hotkey_driver");
     tauri::async_runtime::spawn_blocking(|| -> AppResult<()> {
+        // 先关设备句柄——否则 PnP 拆设备栈时因句柄被占无法移除过滤器
+        crate::services::hotkey::keys::close_devices();
         crate::services::hotkey::driver::uninstall()?;
+        // 短暂等待内核释放驱动资源
+        std::thread::sleep(std::time::Duration::from_millis(500));
         crate::services::hotkey::keys::reprobe();
         Ok(())
     })
