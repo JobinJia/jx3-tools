@@ -80,7 +80,7 @@ function errorText(error: unknown, fallback: string): string {
 async function handleInstallDriver() {
   try {
     await hotkeyStore.installDriver()
-    message.success('驱动已安装（仅键盘过滤器），请重启电脑后使用按键功能')
+    message.success('驱动安装完成，重启电脑后生效')
   } catch (error: unknown) {
     console.error('安装按键驱动失败:', error)
     message.error(errorText(error, '安装驱动失败'))
@@ -358,7 +358,7 @@ onUnmounted(() => {
             安装按键驱动
           </n-button>
         </template>
-        将安装键盘驱动，需重启电脑后生效。确认安装？
+        将安装按键驱动（仅键盘，不影响鼠标），需重启电脑后生效。确认安装？
       </n-popconfirm>
     </n-alert>
 

@@ -13,7 +13,7 @@
 #![cfg(target_os = "windows")]
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -72,8 +72,10 @@ impl Drop for Device {
     }
 }
 
-/// 全局发送器（延迟初始化，进程内仅创建一次）
-static SENDER: OnceLock<Option<Sender>> = OnceLock::new();
+/// 全局发送器。用 Mutex 而非 OnceLock：安装驱动（含免重启热加载）后需要重新探测设备
+static SENDER: Mutex<Option<Sender>> = Mutex::new(None);
+/// 标记是否已完成首次探测
+static PROBED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 struct Sender {
     devices: Vec<Device>,
@@ -130,17 +132,40 @@ fn init_sender() -> Option<Sender> {
     Some(Sender { devices })
 }
 
-fn get_sender() -> Option<&'static Sender> {
-    SENDER.get_or_init(init_sender).as_ref()
+/// 确保首次探测完成后返回发送器引用。如需强制重探，先调用 `reprobe()`
+fn with_sender<F, T>(f: F) -> T
+where
+    F: FnOnce(Option<&Sender>) -> T,
+{
+    if !PROBED.load(Ordering::Acquire) {
+        let mut guard = SENDER.lock().unwrap();
+        if !PROBED.load(Ordering::Relaxed) {
+            *guard = init_sender();
+            PROBED.store(true, Ordering::Release);
+        }
+        return f(guard.as_ref());
+    }
+    let guard = SENDER.lock().unwrap();
+    f(guard.as_ref())
+}
+
+/// 强制重新探测 interception 设备（安装/卸载驱动后调用）
+pub fn reprobe() {
+    PROBED.store(false, Ordering::Release);
+    let mut guard = SENDER.lock().unwrap();
+    *guard = init_sender();
+    PROBED.store(true, Ordering::Release);
 }
 
 /// 查询按键驱动是否就绪（键盘设备可打开 = 内核驱动已加载）
 pub fn driver_status() -> DriverStatus {
-    if get_sender().is_some() {
-        DriverStatus::Ready
-    } else {
-        DriverStatus::NotInstalled
-    }
+    with_sender(|s| {
+        if s.is_some() {
+            DriverStatus::Ready
+        } else {
+            DriverStatus::NotInstalled
+        }
+    })
 }
 
 impl Sender {
@@ -210,10 +235,12 @@ impl Sender {
 
 /// 模拟按键点击（按下 + 释放），经 Interception 内核注入
 pub fn simulate_key_press(key: KeyDef) -> AppResult<()> {
-    let sender = get_sender().ok_or_else(|| {
-        AppError::Hotkey("按键驱动未就绪，请先在本页面安装驱动并重启电脑".into())
-    })?;
-    sender.send_key(key)
+    with_sender(|s| match s {
+        Some(sender) => sender.send_key(key),
+        None => Err(AppError::Hotkey(
+            "按键驱动未就绪，请先在按键页面安装驱动".into(),
+        )),
+    })
 }
 
 /// Sleep with interrupt capability
