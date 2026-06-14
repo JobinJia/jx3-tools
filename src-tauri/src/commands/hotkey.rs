@@ -139,10 +139,10 @@ pub async fn uninstall_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: uninstall_hotkey_driver");
-    tauri::async_runtime::spawn_blocking(|| {
+    tauri::async_runtime::spawn_blocking(|| -> AppResult<()> {
         crate::services::hotkey::driver::uninstall()?;
         crate::services::hotkey::keys::reprobe();
-        Ok::<(), AppError>(())
+        Ok(())
     })
     .await
     .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
