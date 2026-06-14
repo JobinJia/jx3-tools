@@ -73,9 +73,10 @@ mod windows_impl {
         SP_PROPCHANGE_PARAMS,
     };
     use windows::Win32::System::Services::{
-        CloseServiceHandle, CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW, SC_HANDLE,
-        SC_MANAGER_CREATE_SERVICE, SERVICE_ALL_ACCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
-        SERVICE_KERNEL_DRIVER,
+        CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
+        OpenServiceW, SC_HANDLE, SC_MANAGER_CREATE_SERVICE, SERVICE_ALL_ACCESS,
+        SERVICE_CONTROL_STOP, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
+        SERVICE_STATUS,
     };
 
     use super::{encode_multi_sz, parse_multi_sz, DriverState};
@@ -362,6 +363,29 @@ mod windows_impl {
         }
     }
 
+    /// 停止内核驱动服务（触发驱动从内核卸载、销毁控制设备）。
+    /// 已停止或不存在均视为成功——只要最终没在跑就行。
+    fn stop_service(service: &str) {
+        let Ok(scm) =
+            (unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CREATE_SERVICE) })
+        else {
+            return;
+        };
+        let scm = ScHandle(scm);
+        let name = to_wide(service);
+        let Ok(svc) =
+            (unsafe { OpenServiceW(scm.0, PCWSTR(name.as_ptr()), SERVICE_ALL_ACCESS) })
+        else {
+            return;
+        };
+        let svc = ScHandle(svc);
+        let mut status = SERVICE_STATUS::default();
+        match unsafe { ControlService(svc.0, SERVICE_CONTROL_STOP, &mut status) } {
+            Ok(()) => log::info!("已停止驱动服务 {service}"),
+            Err(e) => log::debug!("停止驱动服务 {service} 跳过: {e}"),
+        }
+    }
+
     /// 删除指定内核驱动服务（不存在视为成功）
     fn delete_service(service: &str) -> AppResult<()> {
         let scm = unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CREATE_SERVICE) }
@@ -538,11 +562,10 @@ mod windows_impl {
         log::info!("鼠标过滤器已剥离");
     }
 
-    /// 卸载按键驱动：移除键盘 UpperFilters → 删服务 → 删驱动文件；
-    /// 顺带清理旧版全装可能残留的鼠标过滤器/服务/文件。需重启后彻底生效。
+    /// 卸载按键驱动：摘过滤器 → 停服务（卸载内核驱动）→ 删服务 → 删文件 → 热重启设备。
     pub fn uninstall() -> AppResult<()> {
-        // 键盘侧：先摘过滤器引用，再删服务与文件
         remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
+        stop_service(KEYBOARD_FILTER);
         delete_service(KEYBOARD_FILTER)?;
         delete_driver_file();
 
@@ -550,6 +573,7 @@ mod windows_impl {
         if let Err(err) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
             log::warn!("清理残留鼠标过滤器失败: {err}");
         }
+        stop_service(MOUSE_FILTER);
         if let Err(err) = delete_service(MOUSE_FILTER) {
             log::warn!("清理残留鼠标服务失败: {err}");
         }

@@ -113,6 +113,8 @@ pub async fn install_hotkey_driver(
     let installer = resolve_installer_exe(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
         crate::services::hotkey::driver::install(&installer)?;
+        // PnP 重建设备栈是异步的，等待设备就绪再探测
+        std::thread::sleep(std::time::Duration::from_millis(1500));
         crate::services::hotkey::keys::reprobe();
         Ok(())
     })
@@ -142,8 +144,8 @@ pub async fn uninstall_hotkey_driver(
         // 先关设备句柄——否则 PnP 拆设备栈时因句柄被占无法移除过滤器
         crate::services::hotkey::keys::close_devices();
         crate::services::hotkey::driver::uninstall()?;
-        // 短暂等待内核释放驱动资源
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // 等待内核卸载驱动、销毁控制设备
+        std::thread::sleep(std::time::Duration::from_millis(1500));
         crate::services::hotkey::keys::reprobe();
         Ok(())
     })
