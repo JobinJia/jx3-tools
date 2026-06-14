@@ -132,7 +132,7 @@ pub async fn install_hotkey_driver() -> AppResult<HotkeyStatus> {
     Err(AppError::Hotkey("仅支持 Windows 平台".into()))
 }
 
-/// 卸载按键驱动（删键盘过滤器/服务/文件并清理旧版鼠标残留），需重启生效
+/// 卸载按键驱动
 #[cfg(target_os = "windows")]
 #[command]
 pub async fn uninstall_hotkey_driver(
@@ -140,12 +140,20 @@ pub async fn uninstall_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: uninstall_hotkey_driver");
-    tauri::async_runtime::spawn_blocking(|| -> AppResult<()> {
-        // 先关设备句柄——否则 PnP 拆设备栈时因句柄被占无法移除过滤器
+    let service = state.hotkey();
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
+        // 1. 先停掉按键 runner——否则 runner 线程会在 close_devices 之后重新打开设备句柄
+        service.stop_runner(&app_clone);
+        // 2. 关闭所有 interception 设备句柄
         crate::services::hotkey::keys::close_devices();
+        // 3. 等内核释放句柄引用
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        // 4. 卸载：摘过滤器 → 停服务 → 删服务 → 删文件 → 热重启键盘设备
         crate::services::hotkey::driver::uninstall()?;
-        // 等待内核卸载驱动、销毁控制设备
+        // 5. 等 PnP 重建设备栈 + 内核卸载驱动
         std::thread::sleep(std::time::Duration::from_millis(1500));
+        // 6. 重新探测（应找到 0 个设备）
         crate::services::hotkey::keys::reprobe();
         Ok(())
     })
