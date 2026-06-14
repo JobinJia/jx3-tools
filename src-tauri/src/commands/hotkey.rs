@@ -111,9 +111,8 @@ pub async fn install_hotkey_driver(
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: install_hotkey_driver");
     let installer = resolve_installer_exe(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
         crate::services::hotkey::driver::install(&installer)?;
-        // 安装后重新探测设备（若需重启则探测到 0 个设备，状态显示 PendingReboot）
         crate::services::hotkey::keys::reprobe();
         Ok(())
     })
