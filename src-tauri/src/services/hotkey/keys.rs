@@ -149,13 +149,17 @@ where
     f(guard.as_ref())
 }
 
-/// 关闭所有 interception 设备句柄（卸载驱动前调用——PnP 拆设备栈时如果有进程
-/// 持有句柄会导致拆栈失败，过滤器留在原位）
+/// 关闭所有设备句柄并标记为"已卸载"（卸载驱动时调用）。
+/// 保持 PROBED=true 使后续 `with_sender` 不会重新打开设备——Interception 驱动的
+/// 控制设备在内核卸载前一直存在（架构限制，无法热卸载），但注册表和服务已经
+/// 清理干净，下次开机驱动就不会加载了。
 pub fn close_devices() {
     let mut guard = SENDER.lock().unwrap();
     *guard = None;
-    PROBED.store(false, Ordering::Release);
-    log::info!("已关闭所有 interception 设备句柄");
+    // PROBED 保持 true：告诉 with_sender "已探测过、结果是没有设备"，
+    // 防止它重新 init_sender 又打开仍存在的控制设备
+    PROBED.store(true, Ordering::Release);
+    log::info!("已关闭所有 interception 设备句柄（逻辑卸载）");
 }
 
 /// 重新探测 interception 设备（安装驱动后调用）

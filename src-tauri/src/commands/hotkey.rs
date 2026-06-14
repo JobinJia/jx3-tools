@@ -143,18 +143,13 @@ pub async fn uninstall_hotkey_driver(
     let service = state.hotkey();
     let app_clone = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
-        // 1. 先停掉按键 runner——否则 runner 线程会在 close_devices 之后重新打开设备句柄
+        // 1. 停掉按键 runner
         service.stop_runner(&app_clone);
-        // 2. 关闭所有 interception 设备句柄
+        // 2. 关闭设备句柄并标记为"已卸载"——不再 reprobe
+        //    （Interception 控制设备无法热卸载，但逻辑上 app 不再使用它们）
         crate::services::hotkey::keys::close_devices();
-        // 3. 等内核释放句柄引用
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        // 4. 卸载：摘过滤器 → 停服务 → 删服务 → 删文件 → 热重启键盘设备
+        // 3. 清理注册表/服务/文件（下次开机驱动就不会加载）
         crate::services::hotkey::driver::uninstall()?;
-        // 5. 等 PnP 重建设备栈 + 内核卸载驱动
-        std::thread::sleep(std::time::Duration::from_millis(1500));
-        // 6. 重新探测（应找到 0 个设备）
-        crate::services::hotkey::keys::reprobe();
         Ok(())
     })
     .await
