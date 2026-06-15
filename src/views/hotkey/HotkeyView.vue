@@ -63,7 +63,6 @@ const statusClass = computed(() => {
 // 驱动安装状态（仅 Windows 有意义）
 const driverState = computed(() => status.value.driverState)
 const showDriverInstall = computed(() => isWindows.value && driverState.value === 'notInstalled')
-const showDriverReboot = computed(() => isWindows.value && driverState.value === 'pendingReboot')
 // 旧版安装包附带的鼠标过滤器残留（任何驱动状态下都提示清理）
 const showMouseFilterWarn = computed(() => isWindows.value && status.value.mouseFilterPresent)
 
@@ -360,15 +359,6 @@ onUnmounted(() => {
         </template>
         将安装按键驱动（仅键盘，不影响鼠标）。确认安装？
       </n-popconfirm>
-    </n-alert>
-
-    <n-alert
-      v-else-if="showDriverReboot"
-      type="info"
-      title="驱动已安装但未加载"
-      class="mx-auto mb-3 max-w-[480px]"
-    >
-      按键驱动已安装但未检测到设备，请尝试重启应用或电脑。
     </n-alert>
 
     <n-alert
