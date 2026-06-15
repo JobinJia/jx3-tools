@@ -66,17 +66,10 @@ mod windows_impl {
         HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_MULTI_SZ, REG_SAM_FLAGS,
         REG_VALUE_TYPE,
     };
-    use windows::Win32::Devices::DeviceAndDriverInstallation::{
-        SetupDiCallClassInstaller, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
-        SetupDiGetClassDevsW, SetupDiSetClassInstallParamsW, DIF_PROPERTYCHANGE,
-        DICS_FLAG_GLOBAL, DICS_PROPCHANGE, DIGCF_PRESENT, SP_CLASSINSTALL_HEADER,
-        SP_DEVINFO_DATA, SP_PROPCHANGE_PARAMS,
-    };
     use windows::Win32::System::Services::{
-        CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
-        OpenServiceW, SC_HANDLE, SC_MANAGER_CREATE_SERVICE, SERVICE_ALL_ACCESS,
-        SERVICE_CONTROL_STOP, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
-        SERVICE_STATUS,
+        CloseServiceHandle, CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW, SC_HANDLE,
+        SC_MANAGER_CREATE_SERVICE, SERVICE_ALL_ACCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
+        SERVICE_KERNEL_DRIVER,
     };
 
     use super::{encode_multi_sz, parse_multi_sz, DriverState};
@@ -363,29 +356,6 @@ mod windows_impl {
         }
     }
 
-    /// 停止内核驱动服务（触发驱动从内核卸载、销毁控制设备）。
-    /// 已停止或不存在均视为成功——只要最终没在跑就行。
-    fn stop_service(service: &str) {
-        let Ok(scm) =
-            (unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CREATE_SERVICE) })
-        else {
-            return;
-        };
-        let scm = ScHandle(scm);
-        let name = to_wide(service);
-        let Ok(svc) =
-            (unsafe { OpenServiceW(scm.0, PCWSTR(name.as_ptr()), SERVICE_ALL_ACCESS) })
-        else {
-            return;
-        };
-        let svc = ScHandle(svc);
-        let mut status = SERVICE_STATUS::default();
-        match unsafe { ControlService(svc.0, SERVICE_CONTROL_STOP, &mut status) } {
-            Ok(()) => log::info!("已停止驱动服务 {service}"),
-            Err(e) => log::debug!("停止驱动服务 {service} 跳过: {e}"),
-        }
-    }
-
     /// 删除指定内核驱动服务（不存在视为成功）
     fn delete_service(service: &str) -> AppResult<()> {
         let scm = unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CREATE_SERVICE) }
@@ -405,153 +375,52 @@ mod windows_impl {
         Ok(())
     }
 
-    // ───────────────────────── 热重启键盘设备 ─────────────────────────
-
-    const KEYBOARD_CLASS_GUID: windows::core::GUID =
-        windows::core::GUID::from_u128(0x4D36E96B_E325_11CE_BFC1_08002BE10318);
-    const MOUSE_CLASS_GUID: windows::core::GUID =
-        windows::core::GUID::from_u128(0x4D36E96F_E325_11CE_BFC1_08002BE10318);
-
-    /// 通知 PnP 指定 class 的所有设备"属性已变更"，触发设备栈重建。
-    /// 用 DICS_PROPCHANGE 而非 DICS_DISABLE→ENABLE——后者会被 Windows 的
-    /// "不允许禁用最后一个键盘"安全保护拦截（日志表现为 12 个键盘 0 个重启成功）。
-    fn restart_class_devices(class_guid: &windows::core::GUID, label: &str) {
-        let dev_info = unsafe {
-            SetupDiGetClassDevsW(Some(class_guid), PCWSTR::null(), None, DIGCF_PRESENT)
-        };
-        let Ok(dev_info) = dev_info else {
-            log::warn!("枚举{label}设备失败: {:?}", dev_info.err());
-            return;
-        };
-
-        let mut index: u32 = 0;
-        let mut restarted = 0u32;
-        loop {
-            let mut dev_info_data = SP_DEVINFO_DATA {
-                cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
-                ..Default::default()
-            };
-            if unsafe { SetupDiEnumDeviceInfo(dev_info, index, &mut dev_info_data) }.is_err() {
-                break;
-            }
-            index += 1;
-
-            let params = SP_PROPCHANGE_PARAMS {
-                ClassInstallHeader: SP_CLASSINSTALL_HEADER {
-                    cbSize: std::mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
-                    InstallFunction: DIF_PROPERTYCHANGE,
-                },
-                StateChange: DICS_PROPCHANGE,
-                Scope: DICS_FLAG_GLOBAL,
-                HwProfile: 0,
-            };
-            let set_ok = unsafe {
-                SetupDiSetClassInstallParamsW(
-                    dev_info,
-                    Some(&dev_info_data),
-                    Some(&params.ClassInstallHeader),
-                    std::mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
-                )
-            };
-            if set_ok.is_err() {
-                continue;
-            }
-            if unsafe {
-                SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, dev_info, Some(&dev_info_data))
-            }
-            .is_ok()
-            {
-                restarted += 1;
-            }
-        }
-
-        unsafe { let _ = SetupDiDestroyDeviceInfoList(dev_info); }
-        log::info!("热重启{label}设备完成: 枚举 {index} 个，成功 {restarted} 个");
-    }
-
-    /// 热重启键盘和鼠标设备，让过滤器变更（安装/卸载/剥离鼠标）立刻生效
-    pub fn restart_input_devices() {
-        restart_class_devices(&KEYBOARD_CLASS_GUID, "键盘");
-        restart_class_devices(&MOUSE_CLASS_GUID, "鼠标");
-    }
-
     // ───────────────────────── 安装 / 卸载 ─────────────────────────
 
-    /// 安装按键驱动。先尝试官方安装器（首次安装必须用它拷文件+注册服务）；
-    /// 如果安装器失败（重装时文件被内核锁着），回退快速路径只恢复注册表项。
-    /// 两种路径最后都剥离鼠标过滤器 + 热重启键盘和鼠标设备。
-    pub fn install(installer_exe: &Path) -> AppResult<()> {
-        let mut ok = false;
+    /// 安装按键驱动（**只装键盘**）：拷 keyboard.sys → 注册服务 → 加键盘 UpperFilters。
+    /// 任一步失败立即回滚已完成的步骤，绝不写任何鼠标相关项。需重启后生效。
+    pub fn install(driver_sys: &Path) -> AppResult<()> {
+        copy_driver(driver_sys)?;
 
-        // 优先跑官方安装器（拷文件 + 创建服务 + 加 UpperFilters）
-        if installer_exe.exists() {
-            match std::process::Command::new(installer_exe)
-                .arg("/install")
-                .output()
-            {
-                Ok(output) if output.status.success() => {
-                    log::info!("官方安装器执行成功");
-                    ok = true;
-                }
-                Ok(output) => log::warn!(
-                    "官方安装器返回 exit {}，回退快速路径",
-                    output.status.code().unwrap_or(-1)
-                ),
-                Err(e) => log::warn!("启动官方安装器失败: {e}，回退快速路径"),
-            }
+        if let Err(err) = create_keyboard_service() {
+            delete_driver_file();
+            return Err(err);
         }
 
-        // 快速路径：驱动文件已在磁盘上，只补注册表
-        if !ok {
-            if !driver_dest_path().exists() {
-                return Err(AppError::Hotkey(
-                    "驱动文件不存在且安装器不可用，无法安装".into(),
-                ));
-            }
-            log::info!("执行快速重装（只恢复注册表）");
-            if let Err(e) = create_keyboard_service() {
-                log::warn!("创建键盘服务: {e}（可能已存在）");
-            }
-            add_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
+        if let Err(err) = add_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER) {
+            log::error!("加键盘 UpperFilters 失败，回滚服务与驱动文件: {err}");
+            let _ = delete_service(KEYBOARD_FILTER);
+            delete_driver_file();
+            return Err(err);
         }
 
-        strip_mouse_filter();
-        restart_input_devices();
-
-        log::info!("键盘驱动安装完成");
+        log::info!("键盘驱动安装完成，重启电脑后生效");
         Ok(())
     }
 
-    /// 剥离鼠标侧全部痕迹（过滤器注册表项 + 服务 + .sys 文件），尽力清理不阻断
-    fn strip_mouse_filter() {
-        if let Err(e) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
-            log::warn!("剥离鼠标 UpperFilters 失败: {e}");
+    /// 卸载按键驱动：移除键盘 UpperFilters → 删服务 → 删驱动文件；
+    /// 顺带清理旧版全装可能残留的鼠标过滤器/服务/文件。需重启后彻底生效。
+    pub fn uninstall() -> AppResult<()> {
+        // 键盘侧：先摘过滤器引用，再删服务与文件
+        remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
+        delete_service(KEYBOARD_FILTER)?;
+        delete_driver_file();
+
+        // 旧版遗留鼠标侧：尽力清理，不影响键盘卸载结果
+        if let Err(err) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
+            log::warn!("清理残留鼠标过滤器失败: {err}");
         }
-        if let Err(e) = delete_service(MOUSE_FILTER) {
-            log::warn!("删除鼠标服务失败: {e}");
+        if let Err(err) = delete_service(MOUSE_FILTER) {
+            log::warn!("清理残留鼠标服务失败: {err}");
         }
         let mouse_sys = driver_dest_path().with_file_name("mouse.sys");
         if mouse_sys.exists() {
             if let Err(e) = std::fs::remove_file(&mouse_sys) {
-                log::warn!("删除 mouse.sys 失败: {e}");
+                log::warn!("删除残留 mouse.sys 失败: {e}");
             }
         }
-        log::info!("鼠标过滤器已剥离");
-    }
 
-    /// 卸载按键驱动：只删 UpperFilters + 热重启设备。
-    /// **不删服务、不删文件、不用官方卸载器**——服务和文件留着无害（没有
-    /// UpperFilters 就不会被 PnP 加载），且保证重新安装时 `create_keyboard_service`
-    /// 正常返回 SERVICE_EXISTS，不会因 SERVICE_MARKED_FOR_DELETE 卡住。
-    pub fn uninstall() -> AppResult<()> {
-        remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
-        if let Err(e) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
-            log::warn!("清理鼠标 UpperFilters 失败: {e}");
-        }
-
-        restart_input_devices();
-
-        log::info!("键盘驱动卸载完成（UpperFilters 已清理）");
+        log::info!("键盘驱动卸载完成，重启电脑后彻底生效");
         Ok(())
     }
 }

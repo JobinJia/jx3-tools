@@ -34,7 +34,7 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/interception/install-interception.exe",
+      "resources/interception/keyboard.sys",
       "resources/interception/LICENSE-LGPL-3.0.txt"
     ],
     "windows": {

@@ -10,7 +10,7 @@ mod config;
 pub mod driver;
 pub mod keymap;
 #[cfg(target_os = "windows")]
-pub(crate) mod keys;
+mod keys;
 mod types;
 #[cfg(target_os = "windows")]
 pub mod window;
@@ -280,9 +280,10 @@ impl HotkeyService {
     /// Start the automation runner
     #[cfg(target_os = "windows")]
     pub fn start_runner(self: &Arc<Self>, app: &AppHandle) -> AppResult<()> {
-        if driver::registry_state() == driver::DriverState::NotInstalled {
+        // 驱动未就绪直接拒绝：否则会空转一个无法注入按键的 runner
+        if keys::driver_status() != keys::DriverStatus::Ready {
             return Err(AppError::Hotkey(
-                "按键驱动未安装，请先在按键页面安装驱动".into(),
+                "按键驱动未就绪，请先在按键页面安装驱动并重启电脑".into(),
             ));
         }
 
@@ -407,19 +408,14 @@ impl HotkeyService {
     }
 }
 
-/// 动态填充驱动相关状态字段。
-/// 注册表（UpperFilters 有 "keyboard"）= 已安装，没有 = 未安装。
-/// 不再区分 PendingReboot——免重启方案下设备探测可能短暂失败（PnP 异步），
-/// 但注册表是安装意图的终极判据。
+/// 动态填充驱动相关状态字段（不持久化）
 #[cfg(target_os = "windows")]
 fn fill_driver_status(status: &mut HotkeyStatus) {
-    let registry = driver::registry_state();
-    let installed = registry != driver::DriverState::NotInstalled;
-    status.driver_ready = installed;
-    status.driver_state = if installed {
+    status.driver_ready = keys::driver_status() == keys::DriverStatus::Ready;
+    status.driver_state = if status.driver_ready {
         driver::DriverState::Ready
     } else {
-        driver::DriverState::NotInstalled
+        driver::registry_state()
     };
     status.mouse_filter_present = driver::mouse_filter_present();
 }

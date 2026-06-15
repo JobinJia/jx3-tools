@@ -71,18 +71,20 @@ pub fn check_window_valid(_hwnd: u64) -> bool {
     false
 }
 
-/// 定位随包分发的官方 Interception 安装器 `install-interception.exe`。
+/// 定位随包分发的已签名键盘驱动 keyboard.sys。
 ///
 /// 安装版：用 exe 旁边 `resources/` 目录里的真实文件。
-/// 绿色版（单文件 exe，旁边没有 resources 目录）：把编译期内嵌的同一份安装器
-/// 写到临时目录再用——保证单文件到处拷也能装驱动。
+/// 绿色版（单文件 exe，旁边没有 resources 目录）：把编译期内嵌的同一份已签名
+/// keyboard.sys 写到临时目录再用——保证单文件到处拷也能装驱动。内嵌的字节与
+/// 打包的文件同源，sys 内容与签名完全一致。
 #[cfg(target_os = "windows")]
-fn resolve_installer_exe(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+fn resolve_driver_sys(app: &AppHandle) -> AppResult<std::path::PathBuf> {
     use tauri::path::BaseDirectory;
     use tauri::Manager;
 
+    // 安装版：磁盘上的真实资源文件存在就直接用，不写临时文件
     if let Ok(path) = app.path().resolve(
-        "resources/interception/install-interception.exe",
+        "resources/interception/keyboard.sys",
         BaseDirectory::Resource,
     ) {
         if path.is_file() {
@@ -90,14 +92,15 @@ fn resolve_installer_exe(app: &AppHandle) -> AppResult<std::path::PathBuf> {
         }
     }
 
-    const INSTALLER: &[u8] =
-        include_bytes!("../../resources/interception/install-interception.exe");
+    // 绿色版回退：写出内嵌驱动到临时目录
+    const KEYBOARD_SYS: &[u8] =
+        include_bytes!("../../resources/interception/keyboard.sys");
     let dir = std::env::temp_dir().join("jx3-tools-driver");
     std::fs::create_dir_all(&dir)
-        .map_err(|e| AppError::Hotkey(format!("创建临时目录失败: {e}")))?;
-    let path = dir.join("install-interception.exe");
-    std::fs::write(&path, INSTALLER)
-        .map_err(|e| AppError::Hotkey(format!("写出安装器失败: {e}")))?;
+        .map_err(|e| AppError::Hotkey(format!("创建临时驱动目录失败: {e}")))?;
+    let path = dir.join("keyboard.sys");
+    std::fs::write(&path, KEYBOARD_SYS)
+        .map_err(|e| AppError::Hotkey(format!("写出内嵌键盘驱动失败: {e}")))?;
     Ok(path)
 }
 
@@ -110,16 +113,14 @@ pub async fn install_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: install_hotkey_driver");
-    let installer = resolve_installer_exe(&app)?;
-    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
-        crate::services::hotkey::driver::install(&installer)?;
-        crate::services::hotkey::keys::reprobe();
-        Ok(())
+    let driver_sys = resolve_driver_sys(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::hotkey::driver::install(&driver_sys)
     })
     .await
     .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
     let service = state.hotkey();
-    service.update_status(&app, |_| {});
+    service.update_status(&app, |_| {}); // 广播最新驱动状态
     Ok(service.get_status())
 }
 
@@ -130,7 +131,7 @@ pub async fn install_hotkey_driver() -> AppResult<HotkeyStatus> {
     Err(AppError::Hotkey("仅支持 Windows 平台".into()))
 }
 
-/// 卸载按键驱动
+/// 卸载按键驱动（删键盘过滤器/服务/文件并清理旧版鼠标残留），需重启生效
 #[cfg(target_os = "windows")]
 #[command]
 pub async fn uninstall_hotkey_driver(
@@ -138,16 +139,9 @@ pub async fn uninstall_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: uninstall_hotkey_driver");
-    let service = state.hotkey();
-    let app_clone = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
-        service.stop_runner(&app_clone);
-        crate::services::hotkey::keys::close_devices();
-        crate::services::hotkey::driver::uninstall()?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
+    tauri::async_runtime::spawn_blocking(crate::services::hotkey::driver::uninstall)
+        .await
+        .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
     let service = state.hotkey();
     service.update_status(&app, |_| {});
     Ok(service.get_status())

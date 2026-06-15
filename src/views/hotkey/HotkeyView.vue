@@ -63,6 +63,7 @@ const statusClass = computed(() => {
 // 驱动安装状态（仅 Windows 有意义）
 const driverState = computed(() => status.value.driverState)
 const showDriverInstall = computed(() => isWindows.value && driverState.value === 'notInstalled')
+const showDriverReboot = computed(() => isWindows.value && driverState.value === 'pendingReboot')
 // 旧版安装包附带的鼠标过滤器残留（任何驱动状态下都提示清理）
 const showMouseFilterWarn = computed(() => isWindows.value && status.value.mouseFilterPresent)
 
@@ -79,7 +80,7 @@ function errorText(error: unknown, fallback: string): string {
 async function handleInstallDriver() {
   try {
     await hotkeyStore.installDriver()
-    message.success('驱动安装完成，已生效')
+    message.success('驱动安装完成，重启电脑后生效')
   } catch (error: unknown) {
     console.error('安装按键驱动失败:', error)
     message.error(errorText(error, '安装驱动失败'))
@@ -99,7 +100,7 @@ async function handleRemoveMouseFilter() {
 async function handleUninstallDriver() {
   try {
     await hotkeyStore.uninstallDriver()
-    message.success('驱动已卸载')
+    message.success('驱动已卸载，重启电脑后彻底生效')
   } catch (error: unknown) {
     console.error('卸载按键驱动失败:', error)
     message.error(errorText(error, '卸载驱动失败'))
@@ -357,8 +358,17 @@ onUnmounted(() => {
             安装按键驱动
           </n-button>
         </template>
-        将安装按键驱动（仅键盘，不影响鼠标）。确认安装？
+        将安装按键驱动（仅键盘，不影响鼠标），重启电脑后生效。确认安装？
       </n-popconfirm>
+    </n-alert>
+
+    <n-alert
+      v-else-if="showDriverReboot"
+      type="info"
+      title="驱动已安装，重启电脑后生效"
+      class="mx-auto mb-3 max-w-[480px]"
+    >
+      按键驱动已安装，请<b>重启电脑</b>后使用按键功能。驱动只需安装一次，以后不再需要重复操作。
     </n-alert>
 
     <n-alert
@@ -530,7 +540,7 @@ onUnmounted(() => {
             <template #trigger>
               <a class="cursor-pointer" style="color: var(--ink-muted)">卸载按键驱动</a>
             </template>
-            将卸载按键驱动。确认卸载？
+            将卸载按键驱动，重启电脑后生效。确认卸载？
           </n-popconfirm>
         </div>
       </div>
