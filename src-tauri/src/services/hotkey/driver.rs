@@ -502,46 +502,54 @@ mod windows_impl {
     // ───────────────────────── 安装 / 卸载 ─────────────────────────
 
     /// 安装按键驱动：
-    /// 1. 运行官方 `install-interception.exe /install`（同时装键盘+鼠标）
-    /// 2. **立刻**剥离鼠标过滤器/服务/文件（在重启前就删干净，鼠标永远不受影响）
     ///
-    /// 为什么不手写安装逻辑：手动 `CreateServiceW + add UpperFilters` 在 Win11 上会出现
-    /// "服务 RUNNING 却不创建 interception 设备"的问题（服务启动类型、驱动签名策略、
-    /// 设备栈构建时序等都可能导致）。官方安装器在所有 Windows 版本上都能正确创建设备，
-    /// 用它做安装再剥鼠标是最可靠的路径。
+    /// **首次安装**：运行官方 `install-interception.exe /install`（拷驱动文件 +
+    /// 注册服务 + 加 UpperFilters），然后剥离鼠标过滤器、热重启键盘设备。
+    ///
+    /// **重新安装**（卸载后同一会话内再装）：keyboard.sys 仍在 System32\drivers
+    /// 且被内核锁着（驱动模块无法热卸载），官方安装器会因文件锁写入失败。
+    /// 此时只需重建注册表项（服务 + UpperFilters），驱动模块和设备对象仍在
+    /// 内存中，注册表恢复后立刻可用。
     pub fn install(installer_exe: &Path) -> AppResult<()> {
-        if !installer_exe.exists() {
-            return Err(AppError::Hotkey(format!(
-                "找不到驱动安装器: {}",
-                installer_exe.display()
-            )));
+        let driver_file = driver_dest_path();
+        if driver_file.exists() {
+            // 重新安装：驱动文件已在磁盘上（且可能被内核锁着），跳过官方安装器，
+            // 只恢复注册表项
+            log::info!("keyboard.sys 已存在于 {}，执行快速重装", driver_file.display());
+            if let Err(e) = create_keyboard_service() {
+                log::warn!("创建键盘服务失败（可能已存在）: {e}");
+            }
+            add_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
+        } else {
+            // 首次安装：运行官方安装器
+            if !installer_exe.exists() {
+                return Err(AppError::Hotkey(format!(
+                    "找不到驱动安装器: {}",
+                    installer_exe.display()
+                )));
+            }
+            let output = std::process::Command::new(installer_exe)
+                .arg("/install")
+                .output()
+                .map_err(|e| AppError::Hotkey(format!("启动驱动安装器失败: {e}")))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return Err(AppError::Hotkey(format!(
+                    "驱动安装器返回错误（exit {}）: {} {}",
+                    output.status.code().unwrap_or(-1),
+                    stdout.trim(),
+                    stderr.trim()
+                )));
+            }
+            log::info!("官方安装器执行成功");
         }
 
-        // 运行官方安装器（需管理员权限，app 本身已通过 manifest 提权）
-        let output = std::process::Command::new(installer_exe)
-            .arg("/install")
-            .output()
-            .map_err(|e| AppError::Hotkey(format!("启动驱动安装器失败: {e}")))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(AppError::Hotkey(format!(
-                "驱动安装器返回错误（exit {}）: {} {}",
-                output.status.code().unwrap_or(-1),
-                stdout.trim(),
-                stderr.trim()
-            )));
-        }
-        log::info!("官方安装器执行成功");
-
-        // 立刻剥离鼠标：在重启前就从注册表删干净，鼠标过滤器永远不会被 PnP 加载
         strip_mouse_filter();
-
-        // 热重启键盘设备让过滤器当场生效，无需重启电脑
         restart_keyboard_devices();
 
-        log::info!("键盘驱动安装完成（鼠标过滤器已剥离）");
+        log::info!("键盘驱动安装完成");
         Ok(())
     }
 
