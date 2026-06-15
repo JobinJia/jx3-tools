@@ -162,11 +162,24 @@ pub fn close_devices() {
     log::info!("已关闭所有 interception 设备句柄（逻辑卸载）");
 }
 
-/// 重新探测 interception 设备（安装驱动后调用）
+/// 重新探测 interception 设备（安装驱动后调用）。
+/// PnP 加载驱动和创建设备是异步的，重试最多 5 次 × 500ms。
 pub fn reprobe() {
-    let mut guard = SENDER.lock().unwrap();
-    *guard = init_sender();
-    PROBED.store(true, Ordering::Release);
+    for attempt in 1..=5 {
+        let mut guard = SENDER.lock().unwrap();
+        *guard = init_sender();
+        PROBED.store(true, Ordering::Release);
+        if guard.is_some() {
+            log::info!("reprobe 成功（第 {attempt} 次尝试）");
+            return;
+        }
+        drop(guard);
+        if attempt < 5 {
+            log::debug!("reprobe 第 {attempt} 次未找到设备，500ms 后重试");
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+    log::warn!("reprobe 5 次均未找到设备");
 }
 
 /// 查询按键驱动是否就绪（键盘设备可打开 = 内核驱动已加载）

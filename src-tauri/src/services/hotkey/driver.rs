@@ -570,27 +570,18 @@ mod windows_impl {
         log::info!("鼠标过滤器已剥离");
     }
 
-    /// 卸载按键驱动：摘过滤器 → 停服务 → 删服务。
-    /// 不删 .sys 文件——内核驱动模块在当前会话仍驻留内存并锁着文件，
-    /// 强删会失败且导致重新安装时写入冲突。文件留着无害（没有 UpperFilters
-    /// 和服务注册就不会被加载），重新安装时官方安装器会覆盖写入。
+    /// 卸载按键驱动：摘 UpperFilters 即可——没有过滤器注册，PnP 不会加载驱动。
+    /// 不删服务（避免"标记删除"状态卡住重装的 create_keyboard_service）、
+    /// 不删文件（内核锁着写不动）。两者留着都无害，重装时直接复用。
     pub fn uninstall() -> AppResult<()> {
         remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
-        stop_service(KEYBOARD_FILTER);
-        if let Err(err) = delete_service(KEYBOARD_FILTER) {
-            log::warn!("删除键盘服务失败（可能已标记删除）: {err}");
-        }
 
-        // 旧版遗留鼠标侧：尽力清理
+        // 旧版遗留鼠标侧：尽力清理过滤器
         if let Err(err) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
             log::warn!("清理残留鼠标过滤器失败: {err}");
         }
-        stop_service(MOUSE_FILTER);
-        if let Err(err) = delete_service(MOUSE_FILTER) {
-            log::warn!("清理残留鼠标服务失败: {err}");
-        }
 
-        log::info!("键盘驱动卸载完成（注册表已清理，下次开机不再加载）");
+        log::info!("键盘驱动卸载完成（UpperFilters 已清理）");
         Ok(())
     }
 }

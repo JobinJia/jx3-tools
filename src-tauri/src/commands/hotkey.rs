@@ -113,8 +113,6 @@ pub async fn install_hotkey_driver(
     let installer = resolve_installer_exe(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
         crate::services::hotkey::driver::install(&installer)?;
-        // PnP 重建设备栈是异步的，等待设备就绪再探测
-        std::thread::sleep(std::time::Duration::from_millis(1500));
         crate::services::hotkey::keys::reprobe();
         Ok(())
     })
