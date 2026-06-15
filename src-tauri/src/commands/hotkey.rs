@@ -71,8 +71,11 @@ pub fn check_window_valid(_hwnd: u64) -> bool {
     false
 }
 
-/// 定位随包分发的官方 Interception 安装器。
-/// 安装版用 resources/ 目录，绿色版用 include_bytes! 写到临时目录。
+/// 定位随包分发的官方 Interception 安装器 `install-interception.exe`。
+///
+/// 安装版：用 exe 旁边 `resources/` 目录里的真实文件。
+/// 绿色版（单文件 exe，旁边没有 resources 目录）：把编译期内嵌的同一份安装器
+/// 写到临时目录再用——保证单文件到处拷也能装驱动。
 #[cfg(target_os = "windows")]
 fn resolve_installer_exe(app: &AppHandle) -> AppResult<std::path::PathBuf> {
     use tauri::path::BaseDirectory;
@@ -108,13 +111,15 @@ pub async fn install_hotkey_driver(
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: install_hotkey_driver");
     let installer = resolve_installer_exe(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::services::hotkey::driver::install(&installer)
+    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
+        crate::services::hotkey::driver::install(&installer)?;
+        crate::services::hotkey::keys::reprobe();
+        Ok(())
     })
     .await
     .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
     let service = state.hotkey();
-    service.update_status(&app, |_| {}); // 广播最新驱动状态
+    service.update_status(&app, |_| {});
     Ok(service.get_status())
 }
 
@@ -133,9 +138,13 @@ pub async fn uninstall_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: uninstall_hotkey_driver");
-    tauri::async_runtime::spawn_blocking(crate::services::hotkey::driver::uninstall)
-        .await
-        .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
+    tauri::async_runtime::spawn_blocking(|| -> AppResult<()> {
+        crate::services::hotkey::driver::uninstall()?;
+        crate::services::hotkey::keys::reprobe();
+        Ok(())
+    })
+    .await
+    .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
     let service = state.hotkey();
     service.update_status(&app, |_| {});
     Ok(service.get_status())

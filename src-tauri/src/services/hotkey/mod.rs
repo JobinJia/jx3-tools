@@ -10,7 +10,7 @@ mod config;
 pub mod driver;
 pub mod keymap;
 #[cfg(target_os = "windows")]
-mod keys;
+pub(crate) mod keys;
 mod types;
 #[cfg(target_os = "windows")]
 pub mod window;
