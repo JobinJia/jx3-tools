@@ -407,25 +407,18 @@ mod windows_impl {
 
     // ───────────────────────── 热重启键盘设备 ─────────────────────────
 
-    /// 键盘设备 class GUID（与 KEYBOARD_CLASS_KEY 里的 GUID 一致）
-    const KEYBOARD_CLASS_GUID: windows::core::GUID = windows::core::GUID::from_u128(
-        0x4D36E96B_E325_11CE_BFC1_08002BE10318,
-    );
+    const KEYBOARD_CLASS_GUID: windows::core::GUID =
+        windows::core::GUID::from_u128(0x4D36E96B_E325_11CE_BFC1_08002BE10318);
+    const MOUSE_CLASS_GUID: windows::core::GUID =
+        windows::core::GUID::from_u128(0x4D36E96F_E325_11CE_BFC1_08002BE10318);
 
-    /// 热重启所有键盘设备（disable→enable），强制设备栈重建，让过滤器当场生效/卸载。
-    /// USB 键盘设备支持热重启；PS/2 等不支持的设备会 disable 失败，跳过不影响。
-    /// 在 disable→enable 期间键盘会短暂失灵（毫秒~秒级），正常现象。
-    pub fn restart_keyboard_devices() {
+    /// 热重启指定 class 的所有设备（disable→enable），强制设备栈重建。
+    fn restart_class_devices(class_guid: &windows::core::GUID, label: &str) {
         let dev_info = unsafe {
-            SetupDiGetClassDevsW(
-                Some(&KEYBOARD_CLASS_GUID),
-                PCWSTR::null(),
-                None,
-                DIGCF_PRESENT,
-            )
+            SetupDiGetClassDevsW(Some(class_guid), PCWSTR::null(), None, DIGCF_PRESENT)
         };
         let Ok(dev_info) = dev_info else {
-            log::warn!("枚举键盘设备失败: {:?}", dev_info.err());
+            log::warn!("枚举{label}设备失败: {:?}", dev_info.err());
             return;
         };
 
@@ -436,67 +429,47 @@ mod windows_impl {
                 cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
                 ..Default::default()
             };
-            let ok = unsafe { SetupDiEnumDeviceInfo(dev_info, index, &mut dev_info_data) };
-            if ok.is_err() {
+            if unsafe { SetupDiEnumDeviceInfo(dev_info, index, &mut dev_info_data) }.is_err() {
                 break;
             }
             index += 1;
 
-            // disable
-            let params = SP_PROPCHANGE_PARAMS {
-                ClassInstallHeader: SP_CLASSINSTALL_HEADER {
-                    cbSize: std::mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
-                    InstallFunction: DIF_PROPERTYCHANGE,
-                },
-                StateChange: DICS_DISABLE,
-                Scope: DICS_FLAG_GLOBAL,
-                HwProfile: 0,
+            let change = |state| {
+                let params = SP_PROPCHANGE_PARAMS {
+                    ClassInstallHeader: SP_CLASSINSTALL_HEADER {
+                        cbSize: std::mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
+                        InstallFunction: DIF_PROPERTYCHANGE,
+                    },
+                    StateChange: state,
+                    Scope: DICS_FLAG_GLOBAL,
+                    HwProfile: 0,
+                };
+                unsafe {
+                    let _ = SetupDiSetClassInstallParamsW(
+                        dev_info,
+                        Some(&dev_info_data),
+                        Some(&params.ClassInstallHeader),
+                        std::mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
+                    );
+                    SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, dev_info, Some(&dev_info_data))
+                }
             };
-            let set_ok = unsafe {
-                SetupDiSetClassInstallParamsW(
-                    dev_info,
-                    Some(&dev_info_data),
-                    Some(&params.ClassInstallHeader),
-                    std::mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
-                )
-            };
-            if set_ok.is_err() {
-                continue;
-            }
-            let call_ok = unsafe {
-                SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, dev_info, Some(&dev_info_data))
-            };
-            if call_ok.is_err() {
-                log::debug!("键盘设备 {} disable 失败（可能是 PS/2），跳过", index - 1);
-                continue;
-            }
 
-            // enable
-            let params = SP_PROPCHANGE_PARAMS {
-                ClassInstallHeader: SP_CLASSINSTALL_HEADER {
-                    cbSize: std::mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
-                    InstallFunction: DIF_PROPERTYCHANGE,
-                },
-                StateChange: DICS_ENABLE,
-                Scope: DICS_FLAG_GLOBAL,
-                HwProfile: 0,
-            };
-            let _ = unsafe {
-                SetupDiSetClassInstallParamsW(
-                    dev_info,
-                    Some(&dev_info_data),
-                    Some(&params.ClassInstallHeader),
-                    std::mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
-                )
-            };
-            let _ = unsafe {
-                SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, dev_info, Some(&dev_info_data))
-            };
+            if change(DICS_DISABLE).is_err() {
+                continue;
+            }
+            let _ = change(DICS_ENABLE);
             restarted += 1;
         }
 
         unsafe { let _ = SetupDiDestroyDeviceInfoList(dev_info); }
-        log::info!("热重启键盘设备完成: 枚举 {index} 个，成功重启 {restarted} 个");
+        log::info!("热重启{label}设备完成: 枚举 {index} 个，成功重启 {restarted} 个");
+    }
+
+    /// 热重启键盘和鼠标设备，让过滤器变更（安装/卸载/剥离鼠标）立刻生效
+    pub fn restart_input_devices() {
+        restart_class_devices(&KEYBOARD_CLASS_GUID, "键盘");
+        restart_class_devices(&MOUSE_CLASS_GUID, "鼠标");
     }
 
     // ───────────────────────── 安装 / 卸载 ─────────────────────────
@@ -547,7 +520,7 @@ mod windows_impl {
         }
 
         strip_mouse_filter();
-        restart_keyboard_devices();
+        restart_input_devices();
 
         log::info!("键盘驱动安装完成");
         Ok(())
@@ -570,18 +543,36 @@ mod windows_impl {
         log::info!("鼠标过滤器已剥离");
     }
 
-    /// 卸载按键驱动：摘 UpperFilters 即可——没有过滤器注册，PnP 不会加载驱动。
-    /// 不删服务（避免"标记删除"状态卡住重装的 create_keyboard_service）、
-    /// 不删文件（内核锁着写不动）。两者留着都无害，重装时直接复用。
-    pub fn uninstall() -> AppResult<()> {
-        remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
-
-        // 旧版遗留鼠标侧：尽力清理过滤器
-        if let Err(err) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
-            log::warn!("清理残留鼠标过滤器失败: {err}");
+    /// 卸载按键驱动：运行官方卸载器 + 热重启键盘和鼠标设备。
+    /// 官方卸载器清理注册表（UpperFilters + 服务），热重启让过滤器当场脱离设备栈。
+    pub fn uninstall(installer_exe: &Path) -> AppResult<()> {
+        if installer_exe.exists() {
+            let output = std::process::Command::new(installer_exe)
+                .arg("/uninstall")
+                .output()
+                .map_err(|e| AppError::Hotkey(format!("启动驱动卸载器失败: {e}")))?;
+            if output.status.success() {
+                log::info!("官方卸载器执行成功");
+            } else {
+                log::warn!(
+                    "官方卸载器返回非零（exit {}），继续手动清理",
+                    output.status.code().unwrap_or(-1)
+                );
+            }
         }
 
-        log::info!("键盘驱动卸载完成（UpperFilters 已清理）");
+        // 兜底手动清理（官方卸载器失败或文件不存在时）
+        if let Err(e) = remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER) {
+            log::warn!("手动清理键盘 UpperFilters 失败: {e}");
+        }
+        if let Err(e) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
+            log::warn!("手动清理鼠标 UpperFilters 失败: {e}");
+        }
+
+        // 热重启键盘 + 鼠标设备，让过滤器当场脱离两种设备栈
+        restart_input_devices();
+
+        log::info!("键盘驱动卸载完成");
         Ok(())
     }
 }
