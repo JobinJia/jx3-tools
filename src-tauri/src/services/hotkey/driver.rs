@@ -68,9 +68,9 @@ mod windows_impl {
     };
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
         SetupDiCallClassInstaller, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
-        SetupDiGetClassDevsW, SetupDiSetClassInstallParamsW, DIF_PROPERTYCHANGE, DICS_DISABLE,
-        DICS_ENABLE, DICS_FLAG_GLOBAL, DIGCF_PRESENT, SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA,
-        SP_PROPCHANGE_PARAMS,
+        SetupDiGetClassDevsW, SetupDiSetClassInstallParamsW, DIF_PROPERTYCHANGE,
+        DICS_FLAG_GLOBAL, DICS_PROPCHANGE, DIGCF_PRESENT, SP_CLASSINSTALL_HEADER,
+        SP_DEVINFO_DATA, SP_PROPCHANGE_PARAMS,
     };
     use windows::Win32::System::Services::{
         CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
@@ -412,7 +412,9 @@ mod windows_impl {
     const MOUSE_CLASS_GUID: windows::core::GUID =
         windows::core::GUID::from_u128(0x4D36E96F_E325_11CE_BFC1_08002BE10318);
 
-    /// 热重启指定 class 的所有设备（disable→enable），强制设备栈重建。
+    /// 通知 PnP 指定 class 的所有设备"属性已变更"，触发设备栈重建。
+    /// 用 DICS_PROPCHANGE 而非 DICS_DISABLE→ENABLE——后者会被 Windows 的
+    /// "不允许禁用最后一个键盘"安全保护拦截（日志表现为 12 个键盘 0 个重启成功）。
     fn restart_class_devices(class_guid: &windows::core::GUID, label: &str) {
         let dev_info = unsafe {
             SetupDiGetClassDevsW(Some(class_guid), PCWSTR::null(), None, DIGCF_PRESENT)
@@ -434,36 +436,37 @@ mod windows_impl {
             }
             index += 1;
 
-            let change = |state| {
-                let params = SP_PROPCHANGE_PARAMS {
-                    ClassInstallHeader: SP_CLASSINSTALL_HEADER {
-                        cbSize: std::mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
-                        InstallFunction: DIF_PROPERTYCHANGE,
-                    },
-                    StateChange: state,
-                    Scope: DICS_FLAG_GLOBAL,
-                    HwProfile: 0,
-                };
-                unsafe {
-                    let _ = SetupDiSetClassInstallParamsW(
-                        dev_info,
-                        Some(&dev_info_data),
-                        Some(&params.ClassInstallHeader),
-                        std::mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
-                    );
-                    SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, dev_info, Some(&dev_info_data))
-                }
+            let params = SP_PROPCHANGE_PARAMS {
+                ClassInstallHeader: SP_CLASSINSTALL_HEADER {
+                    cbSize: std::mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
+                    InstallFunction: DIF_PROPERTYCHANGE,
+                },
+                StateChange: DICS_PROPCHANGE,
+                Scope: DICS_FLAG_GLOBAL,
+                HwProfile: 0,
             };
-
-            if change(DICS_DISABLE).is_err() {
+            let set_ok = unsafe {
+                SetupDiSetClassInstallParamsW(
+                    dev_info,
+                    Some(&dev_info_data),
+                    Some(&params.ClassInstallHeader),
+                    std::mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
+                )
+            };
+            if set_ok.is_err() {
                 continue;
             }
-            let _ = change(DICS_ENABLE);
-            restarted += 1;
+            if unsafe {
+                SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, dev_info, Some(&dev_info_data))
+            }
+            .is_ok()
+            {
+                restarted += 1;
+            }
         }
 
         unsafe { let _ = SetupDiDestroyDeviceInfoList(dev_info); }
-        log::info!("热重启{label}设备完成: 枚举 {index} 个，成功重启 {restarted} 个");
+        log::info!("热重启{label}设备完成: 枚举 {index} 个，成功 {restarted} 个");
     }
 
     /// 热重启键盘和鼠标设备，让过滤器变更（安装/卸载/剥离鼠标）立刻生效
