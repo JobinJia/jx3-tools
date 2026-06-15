@@ -67,9 +67,9 @@ mod windows_impl {
         REG_VALUE_TYPE,
     };
     use windows::Win32::System::Services::{
-        CloseServiceHandle, CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW, SC_HANDLE,
-        SC_MANAGER_CREATE_SERVICE, SERVICE_ALL_ACCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
-        SERVICE_KERNEL_DRIVER,
+        CloseServiceHandle, CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW,
+        StartServiceW, SC_HANDLE, SC_MANAGER_CREATE_SERVICE, SERVICE_ALL_ACCESS,
+        SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
     };
 
     use super::{encode_multi_sz, parse_multi_sz, DriverState};
@@ -405,8 +405,35 @@ mod windows_impl {
 
         strip_mouse_filter();
 
+        // 尝试立刻启动驱动服务（让内核加载驱动、创建 interception 设备）。
+        // 这只是 SCM 级别的 StartService，不碰任何设备栈、不重启键盘。
+        // 如果失败也没关系——重启电脑后一定会加载。
+        start_driver_service();
+
         log::info!("键盘驱动安装完成（鼠标过滤器已剥离）");
         Ok(())
+    }
+
+    /// 尝试启动 keyboard 驱动服务（让内核立刻加载驱动）。
+    /// 已在运行或失败都静默处理——不影响安装结果。
+    fn start_driver_service() {
+        let Ok(scm) =
+            (unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CREATE_SERVICE) })
+        else {
+            return;
+        };
+        let scm = ScHandle(scm);
+        let name = to_wide(KEYBOARD_FILTER);
+        let Ok(svc) =
+            (unsafe { OpenServiceW(scm.0, PCWSTR(name.as_ptr()), SERVICE_ALL_ACCESS) })
+        else {
+            return;
+        };
+        let svc = ScHandle(svc);
+        match unsafe { StartServiceW(svc.0, None) } {
+            Ok(()) => log::info!("驱动服务已启动（内核加载驱动）"),
+            Err(e) => log::debug!("启动驱动服务: {e}（可能已在运行）"),
+        }
     }
 
     fn strip_mouse_filter() {
