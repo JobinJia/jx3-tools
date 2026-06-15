@@ -280,10 +280,12 @@ impl HotkeyService {
     /// Start the automation runner
     #[cfg(target_os = "windows")]
     pub fn start_runner(self: &Arc<Self>, app: &AppHandle) -> AppResult<()> {
-        // 驱动未就绪直接拒绝：否则会空转一个无法注入按键的 runner
-        if keys::driver_status() != keys::DriverStatus::Ready {
+        // 设备可打开 + 注册表有过滤器才算就绪；卸载后设备仍可打开但注册表已清理
+        if keys::driver_status() != keys::DriverStatus::Ready
+            || driver::registry_state() == driver::DriverState::NotInstalled
+        {
             return Err(AppError::Hotkey(
-                "按键驱动未就绪，请先在按键页面安装驱动并重启电脑".into(),
+                "按键驱动未就绪，请先在按键页面安装驱动".into(),
             ));
         }
 
@@ -408,14 +410,22 @@ impl HotkeyService {
     }
 }
 
-/// 动态填充驱动相关状态字段（不持久化）
+/// 动态填充驱动相关状态字段（不持久化）。
+/// 注册表（UpperFilters）是安装状态的终极判据——Interception 驱动无法热卸载，
+/// 控制设备在当前会话一直可打开，单靠设备探测会永远报 Ready。
 #[cfg(target_os = "windows")]
 fn fill_driver_status(status: &mut HotkeyStatus) {
-    status.driver_ready = keys::driver_status() == keys::DriverStatus::Ready;
+    let registry = driver::registry_state();
+    let devices_ok = keys::driver_status() == keys::DriverStatus::Ready;
+
+    // 注册表说未安装 → 一定是未安装（不管设备能不能打开）
+    // 设备能打开 + 注册表有过滤器 → Ready
+    // 设备打不开 + 注册表有过滤器 → PendingReboot（等重启加载）
+    status.driver_ready = devices_ok && registry != driver::DriverState::NotInstalled;
     status.driver_state = if status.driver_ready {
         driver::DriverState::Ready
     } else {
-        driver::registry_state()
+        registry
     };
     status.mouse_filter_present = driver::mouse_filter_present();
 }
