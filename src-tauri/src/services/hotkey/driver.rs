@@ -562,14 +562,18 @@ mod windows_impl {
         log::info!("鼠标过滤器已剥离");
     }
 
-    /// 卸载按键驱动：摘过滤器 → 停服务（卸载内核驱动）→ 删服务 → 删文件 → 热重启设备。
+    /// 卸载按键驱动：摘过滤器 → 停服务 → 删服务。
+    /// 不删 .sys 文件——内核驱动模块在当前会话仍驻留内存并锁着文件，
+    /// 强删会失败且导致重新安装时写入冲突。文件留着无害（没有 UpperFilters
+    /// 和服务注册就不会被加载），重新安装时官方安装器会覆盖写入。
     pub fn uninstall() -> AppResult<()> {
         remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
         stop_service(KEYBOARD_FILTER);
-        delete_service(KEYBOARD_FILTER)?;
-        delete_driver_file();
+        if let Err(err) = delete_service(KEYBOARD_FILTER) {
+            log::warn!("删除键盘服务失败（可能已标记删除）: {err}");
+        }
 
-        // 旧版遗留鼠标侧：尽力清理，不影响键盘卸载结果
+        // 旧版遗留鼠标侧：尽力清理
         if let Err(err) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
             log::warn!("清理残留鼠标过滤器失败: {err}");
         }
@@ -577,17 +581,8 @@ mod windows_impl {
         if let Err(err) = delete_service(MOUSE_FILTER) {
             log::warn!("清理残留鼠标服务失败: {err}");
         }
-        let mouse_sys = driver_dest_path().with_file_name("mouse.sys");
-        if mouse_sys.exists() {
-            if let Err(e) = std::fs::remove_file(&mouse_sys) {
-                log::warn!("删除残留 mouse.sys 失败: {e}");
-            }
-        }
 
-        // 热重启键盘设备让过滤器立刻脱离设备栈，无需重启电脑
-        restart_keyboard_devices();
-
-        log::info!("键盘驱动卸载完成");
+        log::info!("键盘驱动卸载完成（注册表已清理，下次开机不再加载）");
         Ok(())
     }
 }
