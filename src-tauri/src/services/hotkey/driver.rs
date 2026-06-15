@@ -377,25 +377,52 @@ mod windows_impl {
 
     // ───────────────────────── 安装 / 卸载 ─────────────────────────
 
-    /// 安装按键驱动（**只装键盘**）：拷 keyboard.sys → 注册服务 → 加键盘 UpperFilters。
-    /// 任一步失败立即回滚已完成的步骤，绝不写任何鼠标相关项。需重启后生效。
-    pub fn install(driver_sys: &Path) -> AppResult<()> {
-        copy_driver(driver_sys)?;
-
-        if let Err(err) = create_keyboard_service() {
-            delete_driver_file();
-            return Err(err);
+    /// 安装按键驱动：运行官方 install-interception.exe /install，然后剥离鼠标过滤器。
+    pub fn install(installer_exe: &Path) -> AppResult<()> {
+        if !installer_exe.exists() {
+            return Err(AppError::Hotkey(format!(
+                "找不到驱动安装器: {}",
+                installer_exe.display()
+            )));
         }
 
-        if let Err(err) = add_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER) {
-            log::error!("加键盘 UpperFilters 失败，回滚服务与驱动文件: {err}");
-            let _ = delete_service(KEYBOARD_FILTER);
-            delete_driver_file();
-            return Err(err);
-        }
+        let output = std::process::Command::new(installer_exe)
+            .arg("/install")
+            .output()
+            .map_err(|e| AppError::Hotkey(format!("启动驱动安装器失败: {e}")))?;
 
-        log::info!("键盘驱动安装完成，重启电脑后生效");
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(AppError::Hotkey(format!(
+                "驱动安装器返回错误（exit {}）: {} {}",
+                output.status.code().unwrap_or(-1),
+                stdout.trim(),
+                stderr.trim()
+            )));
+        }
+        log::info!("官方安装器执行成功");
+
+        strip_mouse_filter();
+
+        log::info!("键盘驱动安装完成（鼠标过滤器已剥离）");
         Ok(())
+    }
+
+    fn strip_mouse_filter() {
+        if let Err(e) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
+            log::warn!("剥离鼠标 UpperFilters 失败: {e}");
+        }
+        if let Err(e) = delete_service(MOUSE_FILTER) {
+            log::warn!("删除鼠标服务失败: {e}");
+        }
+        let mouse_sys = driver_dest_path().with_file_name("mouse.sys");
+        if mouse_sys.exists() {
+            if let Err(e) = std::fs::remove_file(&mouse_sys) {
+                log::warn!("删除 mouse.sys 失败: {e}");
+            }
+        }
+        log::info!("鼠标过滤器已剥离");
     }
 
     /// 卸载按键驱动：移除键盘 UpperFilters → 删服务 → 删驱动文件；

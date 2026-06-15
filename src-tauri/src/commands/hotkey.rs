@@ -71,20 +71,15 @@ pub fn check_window_valid(_hwnd: u64) -> bool {
     false
 }
 
-/// 定位随包分发的已签名键盘驱动 keyboard.sys。
-///
-/// 安装版：用 exe 旁边 `resources/` 目录里的真实文件。
-/// 绿色版（单文件 exe，旁边没有 resources 目录）：把编译期内嵌的同一份已签名
-/// keyboard.sys 写到临时目录再用——保证单文件到处拷也能装驱动。内嵌的字节与
-/// 打包的文件同源，sys 内容与签名完全一致。
+/// 定位随包分发的官方 Interception 安装器。
+/// 安装版用 resources/ 目录，绿色版用 include_bytes! 写到临时目录。
 #[cfg(target_os = "windows")]
-fn resolve_driver_sys(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+fn resolve_installer_exe(app: &AppHandle) -> AppResult<std::path::PathBuf> {
     use tauri::path::BaseDirectory;
     use tauri::Manager;
 
-    // 安装版：磁盘上的真实资源文件存在就直接用，不写临时文件
     if let Ok(path) = app.path().resolve(
-        "resources/interception/keyboard.sys",
+        "resources/interception/install-interception.exe",
         BaseDirectory::Resource,
     ) {
         if path.is_file() {
@@ -92,15 +87,14 @@ fn resolve_driver_sys(app: &AppHandle) -> AppResult<std::path::PathBuf> {
         }
     }
 
-    // 绿色版回退：写出内嵌驱动到临时目录
-    const KEYBOARD_SYS: &[u8] =
-        include_bytes!("../../resources/interception/keyboard.sys");
+    const INSTALLER: &[u8] =
+        include_bytes!("../../resources/interception/install-interception.exe");
     let dir = std::env::temp_dir().join("jx3-tools-driver");
     std::fs::create_dir_all(&dir)
-        .map_err(|e| AppError::Hotkey(format!("创建临时驱动目录失败: {e}")))?;
-    let path = dir.join("keyboard.sys");
-    std::fs::write(&path, KEYBOARD_SYS)
-        .map_err(|e| AppError::Hotkey(format!("写出内嵌键盘驱动失败: {e}")))?;
+        .map_err(|e| AppError::Hotkey(format!("创建临时目录失败: {e}")))?;
+    let path = dir.join("install-interception.exe");
+    std::fs::write(&path, INSTALLER)
+        .map_err(|e| AppError::Hotkey(format!("写出安装器失败: {e}")))?;
     Ok(path)
 }
 
@@ -113,9 +107,9 @@ pub async fn install_hotkey_driver(
     state: tauri::State<'_, AppState>,
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: install_hotkey_driver");
-    let driver_sys = resolve_driver_sys(&app)?;
+    let installer = resolve_installer_exe(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        crate::services::hotkey::driver::install(&driver_sys)
+        crate::services::hotkey::driver::install(&installer)
     })
     .await
     .map_err(|e| AppError::Command(format!("后台任务执行失败: {e}")))??;
