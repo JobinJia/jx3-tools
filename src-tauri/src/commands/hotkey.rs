@@ -139,15 +139,11 @@ pub async fn uninstall_hotkey_driver(
 ) -> AppResult<HotkeyStatus> {
     log::info!("Command: uninstall_hotkey_driver");
     let service = state.hotkey();
-    let installer = resolve_installer_exe(&app)?;
     let app_clone = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
-        // 1. 停按键 runner（防止 runner 线程重新打开设备句柄）
         service.stop_runner(&app_clone);
-        // 2. 关闭所有 interception 设备句柄
         crate::services::hotkey::keys::close_devices();
-        // 3. 官方卸载器 + 兜底手动清理 + 热重启键盘和鼠标设备
-        crate::services::hotkey::driver::uninstall(&installer)?;
+        crate::services::hotkey::driver::uninstall()?;
         Ok(())
     })
     .await

@@ -474,49 +474,42 @@ mod windows_impl {
 
     // ───────────────────────── 安装 / 卸载 ─────────────────────────
 
-    /// 安装按键驱动：
-    ///
-    /// **首次安装**：运行官方 `install-interception.exe /install`（拷驱动文件 +
-    /// 注册服务 + 加 UpperFilters），然后剥离鼠标过滤器、热重启键盘设备。
-    ///
-    /// **重新安装**（卸载后同一会话内再装）：keyboard.sys 仍在 System32\drivers
-    /// 且被内核锁着（驱动模块无法热卸载），官方安装器会因文件锁写入失败。
-    /// 此时只需重建注册表项（服务 + UpperFilters），驱动模块和设备对象仍在
-    /// 内存中，注册表恢复后立刻可用。
+    /// 安装按键驱动。先尝试官方安装器（首次安装必须用它拷文件+注册服务）；
+    /// 如果安装器失败（重装时文件被内核锁着），回退快速路径只恢复注册表项。
+    /// 两种路径最后都剥离鼠标过滤器 + 热重启键盘和鼠标设备。
     pub fn install(installer_exe: &Path) -> AppResult<()> {
-        let driver_file = driver_dest_path();
-        if driver_file.exists() {
-            // 重新安装：驱动文件已在磁盘上（且可能被内核锁着），跳过官方安装器，
-            // 只恢复注册表项
-            log::info!("keyboard.sys 已存在于 {}，执行快速重装", driver_file.display());
-            if let Err(e) = create_keyboard_service() {
-                log::warn!("创建键盘服务失败（可能已存在）: {e}");
-            }
-            add_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
-        } else {
-            // 首次安装：运行官方安装器
-            if !installer_exe.exists() {
-                return Err(AppError::Hotkey(format!(
-                    "找不到驱动安装器: {}",
-                    installer_exe.display()
-                )));
-            }
-            let output = std::process::Command::new(installer_exe)
+        let mut ok = false;
+
+        // 优先跑官方安装器（拷文件 + 创建服务 + 加 UpperFilters）
+        if installer_exe.exists() {
+            match std::process::Command::new(installer_exe)
                 .arg("/install")
                 .output()
-                .map_err(|e| AppError::Hotkey(format!("启动驱动安装器失败: {e}")))?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                return Err(AppError::Hotkey(format!(
-                    "驱动安装器返回错误（exit {}）: {} {}",
-                    output.status.code().unwrap_or(-1),
-                    stdout.trim(),
-                    stderr.trim()
-                )));
+            {
+                Ok(output) if output.status.success() => {
+                    log::info!("官方安装器执行成功");
+                    ok = true;
+                }
+                Ok(output) => log::warn!(
+                    "官方安装器返回 exit {}，回退快速路径",
+                    output.status.code().unwrap_or(-1)
+                ),
+                Err(e) => log::warn!("启动官方安装器失败: {e}，回退快速路径"),
             }
-            log::info!("官方安装器执行成功");
+        }
+
+        // 快速路径：驱动文件已在磁盘上，只补注册表
+        if !ok {
+            if !driver_dest_path().exists() {
+                return Err(AppError::Hotkey(
+                    "驱动文件不存在且安装器不可用，无法安装".into(),
+                ));
+            }
+            log::info!("执行快速重装（只恢复注册表）");
+            if let Err(e) = create_keyboard_service() {
+                log::warn!("创建键盘服务: {e}（可能已存在）");
+            }
+            add_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
         }
 
         strip_mouse_filter();
@@ -543,36 +536,19 @@ mod windows_impl {
         log::info!("鼠标过滤器已剥离");
     }
 
-    /// 卸载按键驱动：运行官方卸载器 + 热重启键盘和鼠标设备。
-    /// 官方卸载器清理注册表（UpperFilters + 服务），热重启让过滤器当场脱离设备栈。
-    pub fn uninstall(installer_exe: &Path) -> AppResult<()> {
-        if installer_exe.exists() {
-            let output = std::process::Command::new(installer_exe)
-                .arg("/uninstall")
-                .output()
-                .map_err(|e| AppError::Hotkey(format!("启动驱动卸载器失败: {e}")))?;
-            if output.status.success() {
-                log::info!("官方卸载器执行成功");
-            } else {
-                log::warn!(
-                    "官方卸载器返回非零（exit {}），继续手动清理",
-                    output.status.code().unwrap_or(-1)
-                );
-            }
-        }
-
-        // 兜底手动清理（官方卸载器失败或文件不存在时）
-        if let Err(e) = remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER) {
-            log::warn!("手动清理键盘 UpperFilters 失败: {e}");
-        }
+    /// 卸载按键驱动：只删 UpperFilters + 热重启设备。
+    /// **不删服务、不删文件、不用官方卸载器**——服务和文件留着无害（没有
+    /// UpperFilters 就不会被 PnP 加载），且保证重新安装时 `create_keyboard_service`
+    /// 正常返回 SERVICE_EXISTS，不会因 SERVICE_MARKED_FOR_DELETE 卡住。
+    pub fn uninstall() -> AppResult<()> {
+        remove_filter(KEYBOARD_CLASS_KEY, KEYBOARD_FILTER)?;
         if let Err(e) = remove_filter(MOUSE_CLASS_KEY, MOUSE_FILTER) {
-            log::warn!("手动清理鼠标 UpperFilters 失败: {e}");
+            log::warn!("清理鼠标 UpperFilters 失败: {e}");
         }
 
-        // 热重启键盘 + 鼠标设备，让过滤器当场脱离两种设备栈
         restart_input_devices();
 
-        log::info!("键盘驱动卸载完成");
+        log::info!("键盘驱动卸载完成（UpperFilters 已清理）");
         Ok(())
     }
 }
